@@ -870,6 +870,317 @@ validate_dimension_of_conversion <- function(data, n_groups, n_timings) {
   }
 }
 
+# Ageing error rows: `age` is the observed age, `uncertainty` the true age, and
+# `observed` the probability of reading that true age as that age. The
+# input-data vignette describes which rows apply to each fleet and year.
+
+# Checked on the raw data, before the formatted-data filter drops early years.
+validate_ageing_error <- function(data, ages, years) {
+  # Allows for values stored to about 3 decimal places, as for compositions.
+  rounding_tolerance <- 1e-3
+  age_comp_fleets <- data |>
+    dplyr::filter(.data[["type"]] == "age_comp") |>
+    dplyr::pull(.data[["fleet"]]) |>
+    unique()
+  data_fleets <- data |>
+    dplyr::filter(.data[["type"]] != "ageing_error") |>
+    dplyr::pull(.data[["fleet"]]) |>
+    unique()
+  data <- dplyr::filter(data, .data[["type"]] == "ageing_error")
+  if (NROW(data) == 0) {
+    return(invisible(TRUE))
+  }
+  if (!"age" %in% colnames(data) || any(is.na(data[["age"]])) ||
+    any(data[["age"]] != round(data[["age"]]))) {
+    cli::cli_abort(
+      "{.var ageing_error} rows must have the observed age, a whole number, in
+      {.var age}."
+    )
+  }
+  if (!"uncertainty" %in% colnames(data) ||
+    any(!grepl("^[0-9]+$", trimws(as.character(data[["uncertainty"]]))))) {
+    cli::cli_abort(c(
+      "{.var ageing_error} rows must have the true age, a whole number, in
+      {.var uncertainty}.",
+      "i" = "For example, use {.code uncertainty = as.character(true_age)}."
+    ))
+  }
+  observed <- data[["observed"]]
+  if (any(is.na(observed) | observed < 0 | observed > 1 + rounding_tolerance)) {
+    cli::cli_abort(c(
+      "{.var ageing_error} values in {.var observed} must be probabilities
+      between 0 and 1.",
+      "i" = "Missing values, including -999, are not allowed."
+    ))
+  }
+  if (any(is.na(data[["unit"]]) | data[["unit"]] != "proportion")) {
+    cli::cli_abort(
+      "{.var ageing_error} rows must have {.code unit = \"proportion\"}."
+    )
+  }
+  # FIMSFrame() takes fleets from every row, so an unknown name would add a
+  # fleet to the model.
+  unknown_fleets <- setdiff(stats::na.omit(data[["fleet"]]), data_fleets)
+  if (length(unknown_fleets) > 0) {
+    cli::cli_abort(
+      "{.var ageing_error} rows name fleets that are not in the data:
+      {unknown_fleets}."
+    )
+  }
+  unused_fleets <- setdiff(stats::na.omit(data[["fleet"]]), age_comp_fleets)
+  if (length(unused_fleets) > 0) {
+    cli::cli_warn(c(
+      "{.var ageing_error} rows are not used for fleets without
+      {.var age_comp} data: {unused_fleets}.",
+      "i" = "Use {.code fleet = NA} for rows that apply to every fleet with
+      age-composition data."
+    ))
+  }
+  if (any(is.na(data[["fleet"]])) && length(age_comp_fleets) == 0) {
+    cli::cli_warn(
+      "{.var ageing_error} rows are not used because no fleet has
+      {.var age_comp} data."
+    )
+  }
+  bad_timings <- setdiff(stats::na.omit(data[["timing"]]), years)
+  if (length(bad_timings) > 0) {
+    cli::cli_abort(c(
+      "{.var ageing_error} has timings outside the model years
+      ({min(years)}-{max(years)}): {bad_timings}.",
+      "i" = "Use {.code timing = NA} rows as the default for every year."
+    ))
+  }
+
+  data <- dplyr::mutate(
+    data,
+    true_age = as.integer(as.character(.data[["uncertainty"]])),
+    group = ageing_error_group_label(.data[["fleet"]], .data[["timing"]])
+  )
+  duplicated_groups <- data |>
+    dplyr::count(
+      .data[["group"]], .data[["true_age"]], .data[["age"]],
+      name = "n_rows"
+    ) |>
+    dplyr::filter(.data[["n_rows"]] > 1) |>
+    dplyr::pull(.data[["group"]]) |>
+    unique()
+  if (length(duplicated_groups) > 0) {
+    cli::cli_abort(c(
+      "{.var ageing_error} must have one row for each true age and observed
+      age.",
+      "x" = "Check the duplicated rows for: {duplicated_groups}."
+    ))
+  }
+  span_message <- "{.var ageing_error} must span the model ages
+    ({min(ages)}-{max(ages)})."
+  groups_wrong_true_ages <- data |>
+    dplyr::summarize(
+      complete = setequal(.data[["true_age"]], ages),
+      .by = dplyr::all_of("group")
+    ) |>
+    dplyr::filter(!.data[["complete"]]) |>
+    dplyr::pull(.data[["group"]])
+  if (length(groups_wrong_true_ages) > 0) {
+    cli::cli_abort(c(
+      span_message,
+      "x" = "The true ages in {.var uncertainty} must be exactly the model ages
+      for: {groups_wrong_true_ages}.",
+      "i" = "Drop true ages below the youngest model age. Combine rows for true
+      ages above the plus group into 1 plus-group row, weighting each row by
+      the expected numbers at that age, e.g., from a previous assessment."
+    ))
+  }
+  groups_missing_observed_ages <- data |>
+    dplyr::summarize(
+      complete = all(ages %in% .data[["age"]]),
+      .by = dplyr::all_of(c("group", "true_age"))
+    ) |>
+    dplyr::filter(!.data[["complete"]]) |>
+    dplyr::pull(.data[["group"]]) |>
+    unique()
+  if (length(groups_missing_observed_ages) > 0) {
+    cli::cli_abort(c(
+      span_message,
+      "x" = "Each true age needs a row for every model age as an observed age
+      for: {groups_missing_observed_ages}."
+    ))
+  }
+  if (any(data[["age"]] < min(ages))) {
+    cli::cli_warn(c(
+      "{.var ageing_error} has observed ages below the youngest model age
+      ({min(ages)}).",
+      "i" = "Their probabilities are added to age {min(ages)}."
+    ))
+  }
+  if (any(data[["age"]] > max(ages))) {
+    cli::cli_warn(c(
+      "{.var ageing_error} has observed ages above the oldest model age
+      ({max(ages)}).",
+      "i" = "Their probabilities are added to the plus group, age
+      {max(ages)}."
+    ))
+  }
+  # Sums within the tolerance are rescaled to 1 in fold_ageing_error().
+  bad_sums <- data |>
+    dplyr::summarize(
+      total = sum(.data[["observed"]]),
+      .by = dplyr::all_of(c("group", "true_age"))
+    ) |>
+    dplyr::filter(abs(.data[["total"]] - 1) > rounding_tolerance)
+  if (NROW(bad_sums) > 0) {
+    bad_rows <- unique(
+      paste(bad_sums[["group"]], "true age", bad_sums[["true_age"]])
+    )
+    cli::cli_abort(c(
+      "{.var ageing_error} probabilities for each true age must sum to 1.",
+      "x" = "Check these rows: {bad_rows}.",
+      "i" = "Divide each true age's probabilities by their total if they were
+      rounded to fewer than 3 decimal places."
+    ))
+  }
+
+  # An expected proportion of 0 makes the multinomial likelihood NaN in TMB,
+  # even where nothing was observed, because 0 * log(0) is not 0.
+  zero_columns <- fold_ageing_error(data, ages) |>
+    dplyr::summarize(
+      total = sum(.data[["observed"]]),
+      .by = dplyr::all_of(c("fleet", "timing", "age"))
+    ) |>
+    dplyr::filter(.data[["total"]] < rounding_tolerance)
+  if (NROW(zero_columns) > 0) {
+    bad_rows <- unique(paste(
+      ageing_error_group_label(
+        zero_columns[["fleet"]],
+        zero_columns[["timing"]]
+      ),
+      "observed age",
+      zero_columns[["age"]]
+    ))
+    minimum_total <- format(rounding_tolerance, scientific = FALSE)
+    cli::cli_abort(c(
+      "{.var ageing_error} must give every observed age a total probability of
+      at least {minimum_total} across true ages.",
+      "x" = "Check these rows: {bad_rows}."
+    ))
+  }
+
+  missing_years <- find_ageing_error_sources(data, age_comp_fleets, years) |>
+    dplyr::filter(!.data[["has_source"]]) |>
+    dplyr::summarize(
+      years = paste(.data[["year"]], collapse = ", "),
+      .by = dplyr::all_of("fleet")
+    )
+  if (NROW(missing_years) > 0) {
+    fleet_years <- paste0(
+      missing_years[["fleet"]], " (", missing_years[["years"]], ")"
+    )
+    cli::cli_abort(c(
+      "{.var ageing_error} is missing years for some fleets.",
+      "x" = "Fleets and the years without a matrix: {fleet_years}.",
+      "i" = "Add rows for the missing years, or add {.code timing = NA} rows
+      to use as the default for any year without its own rows."
+    ))
+  }
+  invisible(TRUE)
+}
+
+# Labels rows in messages; fleet = NA is kept apart from a fleet named "NA".
+ageing_error_group_label <- function(fleet, timing) {
+  paste0(
+    "fleet ", dplyr::coalesce(fleet, "NA (all fleets)"),
+    " timing ", dplyr::coalesce(as.character(timing), "NA")
+  )
+}
+
+# Adds observed ages outside the model ages to the youngest age or the plus
+# group, then divides each true age by its total so it sums to exactly 1.
+fold_ageing_error <- function(data, ages) {
+  data |>
+    dplyr::mutate(
+      true_age = as.integer(as.character(.data[["uncertainty"]])),
+      age = pmin(pmax(.data[["age"]], min(ages)), max(ages))
+    ) |>
+    dplyr::summarize(
+      observed = sum(.data[["observed"]]),
+      .by = dplyr::all_of(c("fleet", "timing", "true_age", "age"))
+    ) |>
+    dplyr::mutate(
+      observed = .data[["observed"]] / sum(.data[["observed"]]),
+      .by = dplyr::all_of(c("fleet", "timing", "true_age"))
+    )
+}
+
+# Finds the rows each fleet uses in each year, most specific first: fleet and
+# year, fleet, year, then the default. Fleets with no rows that apply are left
+# out, so they have no ageing error.
+find_ageing_error_sources <- function(data, fleets, years) {
+  # is.na() keeps fleet = NA apart from a fleet named "NA".
+  supplied <- unique(
+    paste(is.na(data[["fleet"]]), data[["fleet"]], data[["timing"]])
+  )
+  is_supplied <- function(fleet, timing) {
+    paste(is.na(fleet), fleet, timing) %in% supplied
+  }
+  if (!any(is.na(data[["fleet"]]))) {
+    fleets <- intersect(fleets, data[["fleet"]])
+  }
+  tibble::tibble(
+    fleet = rep(fleets, each = length(years)),
+    year = rep(years, times = length(fleets))
+  ) |>
+    dplyr::mutate(
+      source_fleet = dplyr::if_else(
+        is_supplied(.data[["fleet"]], .data[["year"]]) |
+          is_supplied(.data[["fleet"]], NA),
+        .data[["fleet"]],
+        NA_character_
+      ),
+      source_timing = dplyr::if_else(
+        is_supplied(.data[["source_fleet"]], .data[["year"]]),
+        as.numeric(.data[["year"]]),
+        NA_real_
+      ),
+      has_source = is_supplied(
+        .data[["source_fleet"]],
+        .data[["source_timing"]]
+      )
+    )
+}
+
+# Returns each fleet's matrices, 1 with timing = NA if the same in every year,
+# otherwise 1 per year. Assumes validate_ageing_error() has passed.
+resolve_ageing_error <- function(data, fleets, ages, years) {
+  data <- dplyr::filter(data, .data[["type"]] == "ageing_error")
+  if (NROW(data) == 0) {
+    return(NULL)
+  }
+  matrices <- fold_ageing_error(data, ages)
+  find_ageing_error_sources(data, fleets, years) |>
+    dplyr::mutate(
+      timing = if (all(is.na(.data[["source_timing"]]))) {
+        NA_real_
+      } else {
+        as.numeric(.data[["year"]])
+      },
+      .by = dplyr::all_of("fleet")
+    ) |>
+    dplyr::distinct(
+      .data[["fleet"]], .data[["timing"]],
+      .data[["source_fleet"]], .data[["source_timing"]]
+    ) |>
+    dplyr::inner_join(
+      dplyr::rename(matrices, source_fleet = "fleet", source_timing = "timing"),
+      by = c("source_fleet", "source_timing"),
+      relationship = "many-to-many"
+    ) |>
+    dplyr::select(
+      dplyr::all_of(c("fleet", "timing", "true_age", "age", "observed"))
+    ) |>
+    dplyr::arrange(
+      .data[["fleet"]], .data[["timing"]], .data[["true_age"]], .data[["age"]]
+    )
+}
+
 # Keep fleet-bin resolution explicit by default. Fixed age-to-length rows are
 # only treated as bin geometry when a caller intentionally opts into that path.
 resolve_fleet_length_bins <- function(
@@ -1059,7 +1370,9 @@ FIMSFrame <- function(data) {
   # Get the earliest and latest year formatted as integers
   data_to_use_4_timing <- dplyr::filter(
     data,
-    !.data$type %in% c("age_to_length_conversion", "weight_at_age")
+    !.data$type %in% c(
+      "age_to_length_conversion", "weight_at_age", "ageing_error"
+    )
   ) |>
     dplyr::pull(.data$timing)
   start_year <- as.integer(floor(min(data_to_use_4_timing, na.rm = TRUE)))
@@ -1148,6 +1461,8 @@ FIMSFrame <- function(data) {
       n_groups = n_ages,
       n_timings = n_years
     )
+
+  validate_ageing_error(data, ages = ages, years = years)
 
   # Work on filling in missing data with -999 and arrange in the correct
   # order so that getting information out with model_*() are correct.
