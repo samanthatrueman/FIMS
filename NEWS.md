@@ -1,6 +1,6 @@
 # FIMS 0.11.0
 
-*
+* Adds ageing error matrices, optionally by fleet and year, as `ageing_error` rows in the input data; they move expected age compositions from true age to observed age
 
 # FIMS 0.10.0
 
