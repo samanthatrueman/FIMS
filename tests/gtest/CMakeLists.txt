@@ -472,3 +472,17 @@ target_link_libraries(fimsMath_fimsMath_ageingError
 )
 
 gtest_discover_tests(fimsMath_fimsMath_ageingError)
+
+
+# test_population_CatchAtAge_EvaluateAgeingError.cpp
+add_executable(population_CatchAtAge_EvaluateAgeingError
+  test_population_CatchAtAge_EvaluateAgeingError.cpp
+)
+add_as_invoker_manifest(population_CatchAtAge_EvaluateAgeingError)
+
+target_link_libraries(population_CatchAtAge_EvaluateAgeingError
+  gtest_main
+  fims_test
+)
+
+gtest_discover_tests(population_CatchAtAge_EvaluateAgeingError)

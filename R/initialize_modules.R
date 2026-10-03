@@ -120,6 +120,7 @@ initialize_module <- function(parameters, data, module_name, fleet = NA_characte
 
     module_fields <- setdiff(module_fields, c(
       "age_to_length_conversion",
+      "ageing_error",
       "lengthcomp_expected",
       "lengthcomp_proportion",
       "n_lengths",
