@@ -525,23 +525,27 @@ initialize_fleet <- function(parameters, data, fleet, linked_ids) {
     age_to_length_conversion_fixed_data <- get_data(data) |>
       resolve_age_to_length_conversion(
         years = get_start_year(data):get_end_year(data),
-        fleet = fleet
+        fleet = fleet,
+        lengths = fleet_length_bins
       ) |>
-      dplyr::filter(.data$length %in% fleet_length_bins) |>
       dplyr::mutate(
         age_order = match(.data$age, get_ages(data)),
         length_order = match(.data$length, fleet_length_bins)
       ) |>
       dplyr::arrange(.data$timing, .data$age_order, .data$length_order)
 
-    # 1 table for every year, or 1 table per year.
-    n_tables <- dplyr::n_distinct(age_to_length_conversion_fixed_data$timing)
+    # The C++ reads 1 table for every year, or 1 table per year.
+    n_tables <- ifelse(
+      all(is.na(age_to_length_conversion_fixed_data[["timing"]])),
+      1,
+      get_n_years(data)
+    )
     expected_age_to_length_conversion_rows <- n_tables * get_n_ages(data) * length(fleet_length_bins)
 
     if (nrow(age_to_length_conversion_fixed_data) != expected_age_to_length_conversion_rows) {
       cli::cli_abort(c(
         "Fleet `{fleet}` fixed age-to-length data do not match its resolved fleet bins.",
-        "i" = "Expected {expected_age_to_length_conversion_rows} age-length cells from {get_n_ages(data)} ages x {length(fleet_length_bins)} fleet bins.",
+        "i" = "Expected {expected_age_to_length_conversion_rows} age-length cells from {n_tables} table{?s} x {get_n_ages(data)} ages x {length(fleet_length_bins)} fleet bins.",
         "i" = "Found {nrow(age_to_length_conversion_fixed_data)} matching fixed age-to-length cells after filtering to the fleet bins."
       ))
     }

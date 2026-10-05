@@ -314,12 +314,26 @@ test_that("`FIMSFrame()` returns correct error messages", {
   )
 
   #' @description Test that `FIMSFrame()` errors on duplicated age-to-length conversion rows rather than averaging them.
+  age_1_conversion <- dplyr::filter(
+    data_big,
+    type == "age_to_length_conversion",
+    age == 1
+  )
+  expect_error(
+    FIMSFrame(dplyr::bind_rows(data_big, age_1_conversion)),
+    regexp = paste0(
+      "more than 1 row for\\s+", NROW(age_1_conversion), "\\s+combinations"
+    )
+  )
+
+  #' @description Test that `FIMSFrame()` errors when age-to-length conversion rows name a fleet with no other data.
   expect_error(
     FIMSFrame(dplyr::bind_rows(
       data_big,
-      dplyr::filter(data_big, type == "age_to_length_conversion", age == 1)
+      dplyr::filter(data_big, type == "age_to_length_conversion") |>
+        dplyr::mutate(fleet = "flet1")
     )),
-    regexp = "more than 1 row for\\s+23\\s+combinations"
+    regexp = "name fleets that have no other\\s+data:\\s+\"flet1\""
   )
 
   #' @description Test that `FIMSFrame()` errors on age-to-length conversion timings outside the model years.
@@ -506,7 +520,30 @@ test_that("`model_*()` returns correct outputs for edge cases", {
   ) |> FIMSFrame()
   expect_error(
     model_age_to_length_conversion(fleet_year_data, "fleet1"),
-    regexp = "no `age_to_length_conversion` rows for\\s+these years: 2"
+    regexp = "rows apply to fleet \"fleet1\" in these\\s+years: 2"
+  )
+
+  #' @description Test that `model_age_to_length_conversion()` errors when more than 1 fleet is given.
+  expect_error(
+    model_age_to_length_conversion(fleet_data, c("fleet1", "survey1")),
+    regexp = "must be 1 fleet name"
+  )
+
+  # Keep the lengths up to 500, so the largest ages lose probability.
+  short_lengths <- sort(unique(shared_conversion[["length"]]))
+  short_lengths <- short_lengths[short_lengths <= 500]
+  #' @description Test that `resolve_age_to_length_conversion()` warns and rescales each age to sum to 1 within a fleet's length bins.
+  expect_warning(
+    in_bins <- FIMS:::resolve_age_to_length_conversion(
+      data_big,
+      years = 1:n_years,
+      lengths = short_lengths
+    ),
+    regexp = "rescaled to sum to 1\\s+within the fleet's length bins"
+  )
+  expect_equal(
+    dplyr::summarize(in_bins, total = sum(value), .by = "age")[["total"]],
+    rep(1, n_ages)
   )
 
   #' @description Test that `get_n_lengths()` works with a FIMSFrame object that does not have length data.

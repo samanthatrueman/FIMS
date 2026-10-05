@@ -320,13 +320,15 @@ NULL
 #' present, values are averaged across fleets.
 #'
 #' ## `model_age_to_length_conversion()`
-#' Returns a numeric vector of age-to-length conversion observations for
+#' Returns a numeric vector of age-to-length conversion observations for 1
 #' `fleet`, or for the shared rows (`fleet = NA`) by default. For each year, a
 #' fleet uses its own rows for that year, then its own rows with
 #' `timing = NA`, then the shared rows for that year, then the shared rows with
 #' `timing = NA`. If every year uses the same rows, 1 table ordered by age and
 #' length is returned. Otherwise 1 table per year is returned, ordered by year,
-#' age, and length. The values for each age are rescaled to sum to 1.
+#' age, and length. The values for each age are rescaled to sum to 1 over all
+#' conversion lengths. The model rescales each age again within each fleet's
+#' length bins and warns when that changes the values.
 #'
 #' @export
 #' @rdname model_
@@ -857,12 +859,26 @@ validate_dimension_of_conversion <- function(data, n_groups, n_timings) {
 # For each model year, a fleet uses the first age_to_length_conversion rows it
 # finds in this order: its own rows for that year, its own rows with
 # timing = NA, the shared rows (fleet = NA) for that year, and the shared rows
-# with timing = NA. This is the rule used for maturity_at_age. When every year
-# uses the same rows, 1 table is returned (timing = NA) for all years.
+# with timing = NA. When every year uses the same rows, 1 table is returned
+# (timing = NA) for all years.
 # Each age is rescaled to sum to 1 so values can be entered as proportions or
 # counts. An age that does not sum to 1 would otherwise get more or less weight
-# in the expected length compositions.
-resolve_age_to_length_conversion <- function(data, years, fleet = NA) {
+# in the expected length compositions. Given a fleet's length bins in
+# `lengths`, each age is rescaled again within those bins, as the
+# growth-derived conversion does, so the first and last bins hold the fish
+# outside them.
+resolve_age_to_length_conversion <- function(data, years, fleet = NA,
+                                             lengths = NULL) {
+  if (length(fleet) != 1) {
+    cli::cli_abort(
+      "{.var fleet} must be 1 fleet name, or NA for the shared rows."
+    )
+  }
+  owner <- if (is.na(fleet)) {
+    "the shared rows (fleet = NA)"
+  } else {
+    paste0("fleet \"", fleet, "\"")
+  }
   conversion_data <- dplyr::filter(
     data,
     .data[["type"]] == "age_to_length_conversion"
@@ -887,14 +903,18 @@ resolve_age_to_length_conversion <- function(data, years, fleet = NA) {
   if (!all(sources[["has_source"]])) {
     missing_years <- sources[["timing"]][!sources[["has_source"]]]
     cli::cli_abort(
-      "Fleet {.val {fleet}} has no {.var age_to_length_conversion} rows for
-      these years: {missing_years}."
+      "No {.var age_to_length_conversion} rows apply to {owner} in these
+      years: {missing_years}."
     )
   }
-  if (dplyr::n_distinct(sources[["source_fleet"]], sources[["source_timing"]]) == 1) {
+  n_sources <- dplyr::n_distinct(
+    sources[["source_fleet"]],
+    sources[["source_timing"]]
+  )
+  if (n_sources == 1) {
     sources <- dplyr::mutate(sources[1, ], timing = NA_real_)
   }
-  sources |>
+  conversion <- sources |>
     dplyr::inner_join(
       dplyr::select(
         conversion_data,
@@ -912,11 +932,67 @@ resolve_age_to_length_conversion <- function(data, years, fleet = NA) {
       value = .data[["observed"]] / sum(.data[["observed"]]),
       .by = c("timing", "age")
     ) |>
-    dplyr::select(dplyr::all_of(c("timing", "age", "length", "value"))) |>
-    dplyr::arrange(.data[["timing"]], .data[["age"]], .data[["length"]])
+    dplyr::select(dplyr::all_of(c("timing", "age", "length", "value")))
+  if (!is.null(lengths)) {
+    conversion <- dplyr::filter(conversion, .data[["length"]] %in% lengths)
+    in_bins <- conversion |>
+      dplyr::summarize(
+        in_bins = sum(.data[["value"]]),
+        .by = c("timing", "age")
+      ) |>
+      dplyr::mutate(
+        label = paste0(
+          "Age ", .data[["age"]],
+          ifelse(is.na(.data[["timing"]]), "", paste0(" (", .data[["timing"]], ")"))
+        )
+      )
+    empty_ages <- dplyr::filter(in_bins, .data[["in_bins"]] == 0)
+    if (NROW(empty_ages) > 0) {
+      cli::cli_abort(c(
+        "{.var age_to_length_conversion} for {owner} has no probability in the
+        fleet's length bins for some ages.",
+        stats::setNames(empty_ages[["label"]], rep("*", NROW(empty_ages)))
+      ))
+    }
+    # Matches the tolerance for composition data.
+    rescaled_ages <- dplyr::filter(in_bins, abs(.data[["in_bins"]] - 1) > 1e-3)
+    if (NROW(rescaled_ages) > 0) {
+      shares <- signif(rescaled_ages[["in_bins"]], 4)
+      age_messages <- glue::glue(
+        "{rescaled_ages[['label']]} has {shares} in the bins."
+      )
+      names(age_messages) <- rep("*", length(age_messages))
+      cli::cli_warn(c(
+        "{.var age_to_length_conversion} for {owner} is rescaled to sum to 1
+        within the fleet's length bins.",
+        age_messages
+      ))
+    }
+    conversion <- dplyr::mutate(
+      conversion,
+      value = .data[["value"]] / sum(.data[["value"]]),
+      .by = c("timing", "age")
+    )
+  }
+  dplyr::arrange(
+    conversion,
+    .data[["timing"]], .data[["age"]], .data[["length"]]
+  )
 }
 
 validate_age_to_length_conversion <- function(data, years) {
+  # A misspelled fleet name in these rows would add a fleet to the model.
+  other_fleets <- data |>
+    dplyr::filter(.data[["type"]] != "age_to_length_conversion") |>
+    dplyr::pull(.data[["fleet"]])
+  data <- dplyr::filter(data, .data[["type"]] == "age_to_length_conversion")
+  unknown_fleets <- setdiff(stats::na.omit(data[["fleet"]]), other_fleets)
+  if (length(unknown_fleets) > 0) {
+    cli::cli_abort(
+      "{.var age_to_length_conversion} rows name fleets that have no other
+      data: {.val {unknown_fleets}}."
+    )
+  }
   observed <- data[["observed"]]
   if (any(is.na(observed) | observed < 0)) {
     cli::cli_abort(c(
@@ -935,7 +1011,9 @@ validate_age_to_length_conversion <- function(data, years) {
   }
   # Nothing is averaged, so each fleet, timing, age, and length needs 1 row.
   n_duplicates <- data |>
-    dplyr::count(.data[["fleet"]], .data[["timing"]], .data[["age"]], .data[["length"]]) |>
+    dplyr::count(
+      .data[["fleet"]], .data[["timing"]], .data[["age"]], .data[["length"]]
+    ) |>
     dplyr::filter(.data[["n"]] > 1) |>
     NROW()
   if (n_duplicates > 0) {
@@ -945,18 +1023,26 @@ validate_age_to_length_conversion <- function(data, years) {
     )
   }
   # Each table (fleet and timing, where NA is the shared or default table) is
-  # checked on its own.
+  # checked on its own. Fleet names are quoted so they cannot look like a
+  # timing.
   age_sums <- data |>
     dplyr::summarize(
       sum_observed = sum(.data[["observed"]]),
       .by = c("fleet", "timing", "age")
     ) |>
     dplyr::mutate(
+      fleet_label = ifelse(
+        is.na(.data[["fleet"]]),
+        NA_character_,
+        paste0("\"", .data[["fleet"]], "\"")
+      ),
       table = dplyr::case_when(
         is.na(.data[["fleet"]]) & is.na(.data[["timing"]]) ~ "",
-        is.na(.data[["timing"]]) ~ paste0(" (", .data[["fleet"]], ")"),
+        is.na(.data[["timing"]]) ~ paste0(" (", .data[["fleet_label"]], ")"),
         is.na(.data[["fleet"]]) ~ paste0(" (", .data[["timing"]], ")"),
-        .default = paste0(" (", .data[["fleet"]], ", ", .data[["timing"]], ")")
+        .default = paste0(
+          " (", .data[["fleet_label"]], ", ", .data[["timing"]], ")"
+        )
       ),
       label = paste0("Age ", .data[["age"]], .data[["table"]])
     )
@@ -1242,7 +1328,7 @@ FIMSFrame <- function(data) {
       conversion_data <- dplyr::filter(data, .data$type == "age_to_length_conversion")
       if (NROW(conversion_data) > 0) {
         conversion_lengths <- sort(na.omit(unique(conversion_data[["length"]])))
-        validate_age_to_length_conversion(conversion_data, years)
+        validate_age_to_length_conversion(data, years)
         validate_dimension_of_conversion(
           conversion_data,
           n_groups = n_ages * length(conversion_lengths),

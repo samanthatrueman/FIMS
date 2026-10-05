@@ -490,6 +490,28 @@ test_that("`initialize_fleet()` uses a fleet's own age-to-length conversion rows
   expect_equal(by_year[, 5], rep(uniform_probability, length(shared_values)))
   expect_equal(by_year[, 4], shared_values)
   clear()
+
+  # Expected length compositions for fleet1, 1 column per year.
+  fleet1_length_comp <- function(fims_frame) {
+    fit <- suppressWarnings(fit_fims(
+      initialize_fims(setup_default_parameters(data = fims_frame), fims_frame),
+      optimize = FALSE
+    ))
+    on.exit(clear())
+    matrix(
+      get_report(fit)[["lengthcomp_proportion"]][[1]],
+      ncol = get_n_years(fims_frame)
+    )
+  }
+  base_comp <- fleet1_length_comp(data)
+  year_comp <- fleet1_length_comp(year_data)
+  #' @description Test that a uniform year-5 age-to-length conversion table gives a uniform expected length composition in year 5 only.
+  expect_equal(
+    year_comp[, 5],
+    rep(uniform_probability, nrow(year_comp)),
+    tolerance = 1e-8
+  )
+  expect_equal(year_comp[, 4], base_comp[, 4])
 })
 
 # test_initialize_catch ----
