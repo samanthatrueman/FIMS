@@ -248,6 +248,53 @@ test_that("`FIMSFrame()` returns correct error messages", {
     "FIMSFrame"
   )
 
+  #' @description Test that `FIMSFrame()` errors when the age-to-length conversion probabilities for an age do not sum to 1.
+  expect_error(
+    FIMSFrame(dplyr::mutate(
+      data_big,
+      observed = ifelse(
+        type == "age_to_length_conversion" & age == 3,
+        observed / 2,
+        observed
+      )
+    )),
+    regexp = "Age 3 sums to 0\\.5\\."
+  )
+
+  #' @description Test that `FIMSFrame()` errors when a second set of age-to-length conversion probabilities makes the averaged sum for an age differ from 1.
+  expect_error(
+    FIMSFrame(dplyr::bind_rows(
+      data_big,
+      dplyr::filter(data_big, type == "age_to_length_conversion", age == 1) |>
+        dplyr::mutate(observed = 0.01)
+    )),
+    regexp = "Age 1 sums to"
+  )
+
+  #' @description Test that `FIMSFrame()` errors when an age-to-length conversion probability is greater than 1, less than 0, or missing.
+  for (bad_value in c(1.5, -0.1, NA, -999)) {
+    expect_error(
+      FIMSFrame(dplyr::mutate(
+        data_big,
+        observed = ifelse(
+          type == "age_to_length_conversion" & age == 3 & length == 0,
+          bad_value,
+          observed
+        )
+      )),
+      regexp = "must be\\s+probabilities between 0 and 1"
+    )
+  }
+
+  #' @description Test that `FIMSFrame()` errors when age-to-length conversion rows are not proportions.
+  expect_error(
+    FIMSFrame(dplyr::mutate(
+      data_big,
+      unit = ifelse(type == "age_to_length_conversion", "number", unit)
+    )),
+    regexp = "rows must have\\s+`unit = \"proportion\"`"
+  )
+
   #' @description Test that `FIMSFrame` validators pick up on a missing age in age-composition data.
   expect_error(
     capture_messages(FIMSFrame(
@@ -372,17 +419,23 @@ test_that("`model_*()` works with the correct inputs", {
 ## Edge handling ----
 test_that("`model_*()` returns correct outputs for edge cases", {
   #' @description Test that `model_age_to_length_conversion()` returns averaged data when more than one value is given.
+  # The second set for age 1 is uniform over lengths, so it still sums to 1.
+  age_1_conversion <- dplyr::filter(
+    data_big,
+    type == "age_to_length_conversion",
+    age == 1
+  )
+  uniform_probability <- 1 / NROW(age_1_conversion)
   multiple_data <- dplyr::bind_rows(
     data_big,
-    dplyr::filter(data_big, type == "age_to_length_conversion", age == 1) |>
-      dplyr::mutate(observed = 0.01)
+    dplyr::mutate(age_1_conversion, observed = uniform_probability)
   ) |> FIMSFrame()
   expect_warning(model_age_to_length_conversion(multiple_data))
   expect_equal(
     suppressWarnings(model_age_to_length_conversion(multiple_data))[1],
     data_big |> dplyr::filter(age == 1, length == 0, type == "age_to_length_conversion") |>
       dplyr::pull(observed) |>
-      c(0.01) |>
+      c(uniform_probability) |>
       mean()
   )
 

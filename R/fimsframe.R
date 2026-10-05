@@ -870,6 +870,49 @@ validate_dimension_of_conversion <- function(data, n_groups, n_timings) {
   }
 }
 
+# The length probabilities for each age must sum to 1, so the first and last
+# length bins hold the minus and plus groups. An age that sums to more or less
+# than 1 gets more or less weight in the expected length compositions.
+validate_age_to_length_conversion <- function(data) {
+  # Matches the tolerance for composition data.
+  rounding_tolerance <- 1e-3
+  observed <- data[["observed"]]
+  if (any(is.na(observed) | observed < 0 | observed > 1 + rounding_tolerance)) {
+    cli::cli_abort(c(
+      "{.var age_to_length_conversion} values in {.var observed} must be
+      probabilities between 0 and 1.",
+      "i" = "Missing values, including -999, are not allowed."
+    ))
+  }
+  if (any(is.na(data[["unit"]]) | data[["unit"]] != "proportion")) {
+    cli::cli_abort(
+      "{.var age_to_length_conversion} rows must have
+      {.code unit = \"proportion\"}."
+    )
+  }
+  # Sum the values the model uses. model_age_to_length_conversion() averages
+  # them over fleets and timings.
+  bad_ages <- data |>
+    dplyr::summarize(
+      observed = mean(.data[["observed"]]),
+      .by = c("age", "length")
+    ) |>
+    dplyr::summarize(sum_observed = sum(.data[["observed"]]), .by = "age") |>
+    dplyr::filter(abs(.data[["sum_observed"]] - 1) > rounding_tolerance)
+  if (NROW(bad_ages) > 0) {
+    age_messages <- glue::glue(
+      "Age {bad_ages[['age']]} sums to {signif(bad_ages[['sum_observed']], 4)}."
+    )
+    names(age_messages) <- rep("*", length(age_messages))
+    cli::cli_abort(c(
+      "{.var age_to_length_conversion} probabilities must sum to 1 for each
+      age.",
+      age_messages
+    ))
+  }
+  invisible(TRUE)
+}
+
 # Keep fleet-bin resolution explicit by default. Fixed age-to-length rows are
 # only treated as bin geometry when a caller intentionally opts into that path.
 resolve_fleet_length_bins <- function(
@@ -1125,6 +1168,7 @@ FIMSFrame <- function(data) {
       conversion_data <- dplyr::filter(data, .data$type == "age_to_length_conversion")
       if (NROW(conversion_data) > 0) {
         conversion_lengths <- sort(na.omit(unique(conversion_data[["length"]])))
+        validate_age_to_length_conversion(conversion_data)
         validate_dimension_of_conversion(
           conversion_data,
           n_groups = n_ages * length(conversion_lengths),
