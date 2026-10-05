@@ -1014,26 +1014,24 @@ validate_age_to_length_conversion <- function(data, years) {
   # Each table (fleet and timing, where NA is the shared or default table) is
   # checked on its own. Fleet names are quoted so they cannot look like a
   # timing.
+  table_label <- function(fleet, timing) {
+    dplyr::case_when(
+      is.na(fleet) & is.na(timing) ~ "",
+      is.na(timing) ~ paste0(" (\"", fleet, "\")"),
+      is.na(fleet) ~ paste0(" (", timing, ")"),
+      .default = paste0(" (\"", fleet, "\", ", timing, ")")
+    )
+  }
   age_sums <- data |>
     dplyr::summarize(
       sum_observed = sum(.data[["observed"]]),
       .by = c("fleet", "timing", "age")
     ) |>
     dplyr::mutate(
-      fleet_label = ifelse(
-        is.na(.data[["fleet"]]),
-        NA_character_,
-        paste0("\"", .data[["fleet"]], "\"")
-      ),
-      table = dplyr::case_when(
-        is.na(.data[["fleet"]]) & is.na(.data[["timing"]]) ~ "",
-        is.na(.data[["timing"]]) ~ paste0(" (", .data[["fleet_label"]], ")"),
-        is.na(.data[["fleet"]]) ~ paste0(" (", .data[["timing"]], ")"),
-        .default = paste0(
-          " (", .data[["fleet_label"]], ", ", .data[["timing"]], ")"
-        )
-      ),
-      label = paste0("Age ", .data[["age"]], .data[["table"]])
+      label = paste0(
+        "Age ", .data[["age"]],
+        table_label(.data[["fleet"]], .data[["timing"]])
+      )
     )
   zero_ages <- dplyr::filter(age_sums, .data[["sum_observed"]] == 0)
   if (NROW(zero_ages) > 0) {
@@ -1041,6 +1039,26 @@ validate_age_to_length_conversion <- function(data, years) {
     names(zero_messages) <- rep("*", length(zero_messages))
     cli::cli_abort(c(
       "{.var age_to_length_conversion} values cannot all be 0 for an age.",
+      zero_messages
+    ))
+  }
+  # A length that no age can reach has an expected composition of 0, which
+  # makes the length-composition likelihood undefined.
+  zero_lengths <- data |>
+    dplyr::summarize(
+      total = sum(.data[["observed"]]),
+      .by = c("fleet", "timing", "length")
+    ) |>
+    dplyr::filter(.data[["total"]] == 0)
+  if (NROW(zero_lengths) > 0) {
+    zero_messages <- glue::glue(
+      "Length {zero_lengths[['length']]}",
+      "{table_label(zero_lengths[['fleet']], zero_lengths[['timing']])}",
+      " is all 0."
+    )
+    names(zero_messages) <- rep("*", length(zero_messages))
+    cli::cli_abort(c(
+      "{.var age_to_length_conversion} values cannot all be 0 for a length.",
       zero_messages
     ))
   }

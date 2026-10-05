@@ -346,6 +346,19 @@ test_that("`FIMSFrame()` returns correct error messages", {
     regexp = "timings outside the model years"
   )
 
+  #' @description Test that `FIMSFrame()` errors when the age-to-length conversion values for a length are all 0, which would make the likelihood undefined.
+  expect_error(
+    FIMSFrame(dplyr::mutate(
+      data_big,
+      observed = ifelse(
+        type == "age_to_length_conversion" & length == 100,
+        0,
+        observed
+      )
+    )),
+    regexp = "Length 100 is all 0\\."
+  )
+
   #' @description Test that `FIMSFrame` validators pick up on a missing age in age-composition data.
   expect_error(
     capture_messages(FIMSFrame(
