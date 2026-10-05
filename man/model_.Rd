@@ -52,11 +52,11 @@ model_weight_at_age(x)
 
 \S4method{model_weight_at_age}{data.frame}(x)
 
-model_age_to_length_conversion(x)
+model_age_to_length_conversion(x, fleet = NA)
 
-\S4method{model_age_to_length_conversion}{FIMSFrame}(x)
+\S4method{model_age_to_length_conversion}{FIMSFrame}(x, fleet = NA)
 
-\S4method{model_age_to_length_conversion}{data.frame}(x)
+\S4method{model_age_to_length_conversion}{data.frame}(x, fleet = NA)
 }
 \arguments{
 \item{x}{An object returned from \code{\link[=FIMSFrame]{FIMSFrame()}}.}
@@ -121,10 +121,11 @@ present, values are averaged across fleets.
 
 Returns a numeric vector of age-to-length conversion observations.
 Observations are ordered by age and length in the order defined by
-\code{\link[=FIMSFrame]{FIMSFrame()}}. When multiple observations are present across a single age
-and length, they are averaged because \code{age_to_length_conversion} data cannot
-vary across fleets or time. The values for each age are then rescaled to sum
-to 1.
+\code{\link[=FIMSFrame]{FIMSFrame()}}. A fleet uses its own rows when it has them and the shared
+rows (\code{fleet = NA}) otherwise. Use the default \code{fleet = NA} for the shared
+rows. When multiple observations are present across a single age and length,
+they are averaged because \code{age_to_length_conversion} data cannot vary over
+time. The values for each age are then rescaled to sum to 1.
 }
 }
 \keyword{FIMSFrame}

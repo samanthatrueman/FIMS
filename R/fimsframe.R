@@ -322,10 +322,11 @@ NULL
 #' ## `model_age_to_length_conversion()`
 #' Returns a numeric vector of age-to-length conversion observations.
 #' Observations are ordered by age and length in the order defined by
-#' [FIMSFrame()]. When multiple observations are present across a single age
-#' and length, they are averaged because `age_to_length_conversion` data cannot
-#' vary across fleets or time. The values for each age are then rescaled to sum
-#' to 1.
+#' [FIMSFrame()]. A fleet uses its own rows when it has them and the shared
+#' rows (`fleet = NA`) otherwise. Use the default `fleet = NA` for the shared
+#' rows. When multiple observations are present across a single age and length,
+#' they are averaged because `age_to_length_conversion` data cannot vary over
+#' time. The values for each age are then rescaled to sum to 1.
 #'
 #' @export
 #' @rdname model_
@@ -553,17 +554,17 @@ methods::setMethod(
 #' @keywords FIMSFrame
 methods::setGeneric(
   "model_age_to_length_conversion",
-  function(x) standardGeneric("model_age_to_length_conversion")
+  function(x, fleet = NA) standardGeneric("model_age_to_length_conversion")
 )
 #' @rdname model_
 #' @keywords FIMSFrame
 methods::setMethod(
   "model_age_to_length_conversion",
   "FIMSFrame",
-  function(x) {
-    model_data <- dplyr::filter(
-      .data = as.data.frame(x@data),
-      .data[["type"]] == "age_to_length_conversion"
+  function(x, fleet = NA) {
+    model_data <- select_age_to_length_conversion(
+      as.data.frame(x@data),
+      fleet
     )
     conversion_lengths <- model_data |>
       dplyr::pull(.data[["length"]]) |>
@@ -573,10 +574,10 @@ methods::setMethod(
 
     if (NROW(model_data) > get_n_ages(x) * length(conversion_lengths)) {
       cli::cli_warn(
-        "`age_to_length_conversion` data is time- and fleet-invariant and
-        should consist of {get_n_ages(x) * length(conversion_lengths)} rows not
+        "`age_to_length_conversion` data is time-invariant and should consist
+        of {get_n_ages(x) * length(conversion_lengths)} rows per fleet not
         {NROW(model_data)} rows like what is provided. Data passed to the
-        model will be averaged over timing and name."
+        model will be averaged over timing."
       )
     }
     model_data |>
@@ -589,8 +590,8 @@ methods::setMethod(
 methods::setMethod(
   "model_age_to_length_conversion",
   "data.frame",
-  function(x) {
-    model_age_to_length_conversion(FIMSFrame(x))
+  function(x, fleet = NA) {
+    model_age_to_length_conversion(FIMSFrame(x), fleet)
   }
 )
 
@@ -868,10 +869,27 @@ validate_dimension_of_conversion <- function(data, n_groups, n_timings) {
   }
 }
 
-# The model uses one age-to-length table. Rows are averaged over fleets and
-# timings, and each age is rescaled to sum to 1 so values can be entered as
-# proportions or counts. An age that does not sum to 1 would otherwise get more
-# or less weight in the expected length compositions.
+# A fleet uses its own age_to_length_conversion rows when it has them and the
+# shared rows (fleet = NA) otherwise.
+select_age_to_length_conversion <- function(data, fleet = NA) {
+  conversion_data <- dplyr::filter(
+    data,
+    .data[["type"]] == "age_to_length_conversion"
+  )
+  fleet_data <- dplyr::filter(
+    conversion_data,
+    .data[["fleet"]] %in% .env[["fleet"]]
+  )
+  if (NROW(fleet_data) == 0) {
+    fleet_data <- dplyr::filter(conversion_data, is.na(.data[["fleet"]]))
+  }
+  fleet_data
+}
+
+# Rows for one table are averaged over timings, and each age is rescaled to sum
+# to 1 so values can be entered as proportions or counts. An age that does not
+# sum to 1 would otherwise get more or less weight in the expected length
+# compositions.
 rescale_age_to_length_conversion <- function(data) {
   data |>
     dplyr::summarize(
@@ -894,20 +912,31 @@ validate_age_to_length_conversion <- function(data) {
       "i" = "Missing values, including -999, are not allowed."
     ))
   }
+  # Each fleet's table, and the shared table (fleet = NA), is checked on its own.
   age_sums <- data |>
     dplyr::summarize(
       observed = mean(.data[["observed"]]),
-      .by = c("age", "length")
+      .by = c("fleet", "age", "length")
     ) |>
-    dplyr::summarize(sum_observed = sum(.data[["observed"]]), .by = "age")
-  zero_ages <- age_sums |>
-    dplyr::filter(.data[["sum_observed"]] == 0) |>
-    dplyr::pull(.data[["age"]])
-  if (length(zero_ages) > 0) {
-    cli::cli_abort(
-      "{.var age_to_length_conversion} values are all 0 for these ages:
-      {zero_ages}."
+    dplyr::summarize(
+      sum_observed = sum(.data[["observed"]]),
+      .by = c("fleet", "age")
+    ) |>
+    dplyr::mutate(
+      label = ifelse(
+        is.na(.data[["fleet"]]),
+        paste("Age", .data[["age"]]),
+        paste0("Fleet ", .data[["fleet"]], ", age ", .data[["age"]])
+      )
     )
+  zero_ages <- dplyr::filter(age_sums, .data[["sum_observed"]] == 0)
+  if (NROW(zero_ages) > 0) {
+    zero_messages <- glue::glue("{zero_ages[['label']]} is all 0.")
+    names(zero_messages) <- rep("*", length(zero_messages))
+    cli::cli_abort(c(
+      "{.var age_to_length_conversion} values cannot all be 0 for an age.",
+      zero_messages
+    ))
   }
   # Matches the tolerance for composition data.
   rescaled_ages <- dplyr::filter(
@@ -916,7 +945,7 @@ validate_age_to_length_conversion <- function(data) {
   )
   if (NROW(rescaled_ages) > 0) {
     sums <- signif(rescaled_ages[["sum_observed"]], 4)
-    age_messages <- glue::glue("Age {rescaled_ages[['age']]} sums to {sums}.")
+    age_messages <- glue::glue("{rescaled_ages[['label']]} sums to {sums}.")
     names(age_messages) <- rep("*", length(age_messages))
     cli::cli_warn(c(
       "{.var age_to_length_conversion} values are rescaled to sum to 1 for

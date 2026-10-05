@@ -436,6 +436,48 @@ test_that("`initialize_fleet()` works with correct inputs", {
   clear()
 })
 
+test_that("`initialize_fleet()` uses a fleet's own age-to-length conversion rows", {
+  # fleet1 gets a uniform table and survey1 keeps the shared table.
+  conversion <- dplyr::filter(data_big, type == "age_to_length_conversion")
+  uniform_probability <- 1 / dplyr::n_distinct(conversion[["length"]])
+  fleet_data <- FIMSFrame(dplyr::bind_rows(
+    data_big,
+    dplyr::mutate(conversion, fleet = "fleet1", observed = uniform_probability)
+  ))
+  fleet_values <- function(fleet) {
+    selectivity <- FIMS:::initialize_selectivity(
+      parameters = default_parameters,
+      data = fleet_data,
+      fleet = fleet
+    )
+    module <- FIMS:::initialize_fleet(
+      parameters = default_parameters,
+      data = fleet_data,
+      fleet = fleet,
+      # Only the conversion is checked, so the data ids are placeholders.
+      linked_ids = c(
+        selectivity = selectivity$get_id(),
+        catch = 1,
+        index = 1,
+        age_comp = 1,
+        length_comp = 1
+      )
+    )
+    purrr::map_dbl(
+      seq_along(module$age_to_length_conversion),
+      \(i) module$age_to_length_conversion[i]$value
+    )
+  }
+  #' @description Test that `initialize_fleet()` uses a fleet's own age-to-length conversion rows when it has them.
+  expect_equal(
+    fleet_values("fleet1"),
+    rep(uniform_probability, length(model_age_to_length_conversion(data)))
+  )
+  #' @description Test that `initialize_fleet()` uses the shared age-to-length conversion rows for a fleet without its own.
+  expect_equal(fleet_values("survey1"), model_age_to_length_conversion(data))
+  clear()
+})
+
 # test_initialize_catch ----
 ## IO correctness ----
 test_that("`initialize_catch()` works with correct inputs", {

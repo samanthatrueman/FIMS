@@ -310,7 +310,7 @@ test_that("`FIMSFrame()` returns correct error messages", {
         observed
       )
     )),
-    regexp = "all 0 for these\\s+ages:\\s+3"
+    regexp = "Age 3 is all 0\\."
   )
 
   #' @description Test that `FIMSFrame` validators pick up on a missing age in age-composition data.
@@ -457,6 +457,32 @@ test_that("`model_*()` returns correct outputs for edge cases", {
       mean()
   )
 
+  # fleet1 gets its own uniform table and survey1 keeps the shared table.
+  shared_conversion <- dplyr::filter(data_big, type == "age_to_length_conversion")
+  uniform_length_probability <- 1 / dplyr::n_distinct(shared_conversion[["length"]])
+  fleet_data <- dplyr::bind_rows(
+    data_big,
+    dplyr::mutate(
+      shared_conversion,
+      fleet = "fleet1",
+      observed = uniform_length_probability
+    )
+  ) |> FIMSFrame()
+  #' @description Test that `model_age_to_length_conversion()` returns a fleet's own rows without averaging them with the shared rows.
+  expect_equal(
+    model_age_to_length_conversion(fleet_data, "fleet1"),
+    rep(uniform_length_probability, NROW(shared_conversion))
+  )
+  #' @description Test that `model_age_to_length_conversion()` returns the shared rows for a fleet without its own rows and by default.
+  expect_equal(
+    model_age_to_length_conversion(fleet_data, "survey1"),
+    model_age_to_length_conversion(fims_frame)
+  )
+  expect_equal(
+    model_age_to_length_conversion(fleet_data),
+    model_age_to_length_conversion(fims_frame)
+  )
+
   #' @description Test that `get_n_lengths()` works with a FIMSFrame object that does not have length data.
   expect_equal(
     FIMSFrame(
@@ -470,9 +496,6 @@ test_that("`model_*()` returns correct outputs for edge cases", {
 
 ## Error handling ----
 test_that("`model_*()` returns correct error messages", {
-  #' @description Test that the `model_age_to_length_conversion()` returns an error when a fleet is supplied.
-  expect_error(model_age_to_length_conversion(fims_frame, fleet = "fleet1"))
-
   #' @description Test that the `model_age_to_length_conversion()` returns an error when there is no age column in the data.
   expect_error(model_age_to_length_conversion(
     FIMSFrame(dplyr::select(data_big, -age))
