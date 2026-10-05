@@ -206,6 +206,24 @@ test_that("resolve_ageing_error() keeps fleet = NA apart from a fleet named NA",
   expect_equal(NROW(resolved), length(years) * n_ages^2)
 })
 
+test_that("validate_ageing_error() keeps fleet = NA apart from a fleet named like its label", {
+  odd_name <- "NA (all fleets)"
+  renamed <- dplyr::mutate(
+    data_big,
+    fleet = ifelse(fleet == "fleet1", odd_name, fleet)
+  )
+  #' @description Test that rows for fleet = NA and a fleet named "NA (all fleets)" are not treated as duplicates.
+  expect_no_error(validate_ageing_error(
+    dplyr::bind_rows(
+      renamed,
+      ageing_error_rows(),
+      ageing_error_rows(fleet = odd_name)
+    ),
+    ages = ages,
+    years = years
+  ))
+})
+
 test_that("resolve_ageing_error() makes rows that are close to 1 sum to 1", {
   rounded <- reads_older
   rounded[2, 2] <- rounded[2, 2] + 9e-4

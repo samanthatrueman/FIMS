@@ -1084,10 +1084,11 @@ validate_ageing_error <- function(data, ages, years) {
   invisible(TRUE)
 }
 
-# Labels rows in messages; fleet = NA is kept apart from a fleet named "NA".
+# Labels rows in messages and groups. Fleet names are quoted so no name can
+# match the label for fleet = NA.
 ageing_error_group_label <- function(fleet, timing) {
   paste0(
-    "fleet ", dplyr::coalesce(fleet, "NA (all fleets)"),
+    "fleet ", ifelse(is.na(fleet), "NA (all fleets)", paste0("\"", fleet, "\"")),
     " timing ", dplyr::coalesce(as.character(timing), "NA")
   )
 }
