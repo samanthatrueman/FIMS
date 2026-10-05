@@ -894,12 +894,16 @@ validate_age_to_length_conversion <- function(data) {
       "i" = "Missing values, including -999, are not allowed."
     ))
   }
-  age_sums <- data |>
-    dplyr::summarize(
-      observed = mean(.data[["observed"]]),
-      .by = c("age", "length")
-    ) |>
-    dplyr::summarize(sum_observed = sum(.data[["observed"]]), .by = "age")
+  mean_observed <- dplyr::summarize(
+    data,
+    observed = mean(.data[["observed"]]),
+    .by = c("age", "length")
+  )
+  age_sums <- dplyr::summarize(
+    mean_observed,
+    sum_observed = sum(.data[["observed"]]),
+    .by = "age"
+  )
   zero_ages <- age_sums |>
     dplyr::filter(.data[["sum_observed"]] == 0) |>
     dplyr::pull(.data[["age"]])
@@ -907,6 +911,18 @@ validate_age_to_length_conversion <- function(data) {
     cli::cli_abort(
       "{.var age_to_length_conversion} values are all 0 for these ages:
       {zero_ages}."
+    )
+  }
+  # A length that no age can reach has an expected composition of 0, which
+  # makes the length-composition likelihood undefined.
+  zero_lengths <- mean_observed |>
+    dplyr::summarize(total = sum(.data[["observed"]]), .by = "length") |>
+    dplyr::filter(.data[["total"]] == 0) |>
+    dplyr::pull(.data[["length"]])
+  if (length(zero_lengths) > 0) {
+    cli::cli_abort(
+      "{.var age_to_length_conversion} values are all 0 for these lengths:
+      {zero_lengths}."
     )
   }
   # Matches the tolerance for composition data.
