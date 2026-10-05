@@ -126,8 +126,9 @@ fleet uses its own rows for that year, then its own rows with
 \code{timing = NA}. If every year uses the same rows, 1 table ordered by age and
 length is returned. Otherwise 1 table per year is returned, ordered by year,
 age, and length. The values for each age are rescaled to sum to 1 over all
-conversion lengths. The model rescales each age again within each fleet's
-length bins and warns when that changes the values.
+conversion lengths. The model cuts the table to each fleet's length bins
+without rescaling again, so fish outside the bins are left out, and reports
+a message when that happens.
 }
 }
 \keyword{FIMSFrame}

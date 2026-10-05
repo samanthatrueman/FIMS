@@ -327,8 +327,9 @@ NULL
 #' `timing = NA`. If every year uses the same rows, 1 table ordered by age and
 #' length is returned. Otherwise 1 table per year is returned, ordered by year,
 #' age, and length. The values for each age are rescaled to sum to 1 over all
-#' conversion lengths. The model rescales each age again within each fleet's
-#' length bins and warns when that changes the values.
+#' conversion lengths. The model cuts the table to each fleet's length bins
+#' without rescaling again, so fish outside the bins are left out, and reports
+#' a message when that happens.
 #'
 #' @export
 #' @rdname model_
@@ -864,9 +865,10 @@ validate_dimension_of_conversion <- function(data, n_groups, n_timings) {
 # Each age is rescaled to sum to 1 so values can be entered as proportions or
 # counts. An age that does not sum to 1 would otherwise get more or less weight
 # in the expected length compositions. Given a fleet's length bins in
-# `lengths`, each age is rescaled again within those bins, as the
-# growth-derived conversion does, so the first and last bins hold the fish
-# outside them.
+# `lengths`, the table is cut to those bins and not rescaled again. Length data
+# may only cover fish in that range, so fish outside the bins are left out
+# rather than added to other bins, and the expected composition is normalized
+# over all ages later.
 resolve_age_to_length_conversion <- function(data, years, fleet = NA,
                                              lengths = NULL) {
   if (length(fleet) != 1) {
@@ -946,33 +948,20 @@ resolve_age_to_length_conversion <- function(data, years, fleet = NA,
           ifelse(is.na(.data[["timing"]]), "", paste0(" (", .data[["timing"]], ")"))
         )
       )
-    empty_ages <- dplyr::filter(in_bins, .data[["in_bins"]] == 0)
-    if (NROW(empty_ages) > 0) {
-      cli::cli_abort(c(
-        "{.var age_to_length_conversion} for {owner} has no probability in the
-        fleet's length bins for some ages.",
-        stats::setNames(empty_ages[["label"]], rep("*", NROW(empty_ages)))
-      ))
-    }
     # Matches the tolerance for composition data.
-    rescaled_ages <- dplyr::filter(in_bins, abs(.data[["in_bins"]] - 1) > 1e-3)
-    if (NROW(rescaled_ages) > 0) {
-      shares <- signif(rescaled_ages[["in_bins"]], 4)
+    cut_ages <- dplyr::filter(in_bins, .data[["in_bins"]] < 1 - 1e-3)
+    if (NROW(cut_ages) > 0) {
+      shares <- signif(cut_ages[["in_bins"]], 4)
       age_messages <- glue::glue(
-        "{rescaled_ages[['label']]} has {shares} in the bins."
+        "{cut_ages[['label']]} has {shares} in the bins."
       )
       names(age_messages) <- rep("*", length(age_messages))
-      cli::cli_warn(c(
-        "{.var age_to_length_conversion} for {owner} is rescaled to sum to 1
-        within the fleet's length bins.",
+      cli::cli_inform(c(
+        "{.var age_to_length_conversion} for {owner} has probability outside
+        the fleet's length bins. Fish outside the bins are left out.",
         age_messages
       ))
     }
-    conversion <- dplyr::mutate(
-      conversion,
-      value = .data[["value"]] / sum(.data[["value"]]),
-      .by = c("timing", "age")
-    )
   }
   dplyr::arrange(
     conversion,

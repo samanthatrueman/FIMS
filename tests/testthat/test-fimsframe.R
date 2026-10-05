@@ -532,18 +532,23 @@ test_that("`model_*()` returns correct outputs for edge cases", {
   # Keep the lengths up to 500, so the largest ages lose probability.
   short_lengths <- sort(unique(shared_conversion[["length"]]))
   short_lengths <- short_lengths[short_lengths <= 500]
-  #' @description Test that `resolve_age_to_length_conversion()` warns and rescales each age to sum to 1 within a fleet's length bins.
-  expect_warning(
+  withr::local_options(rlib_message_verbosity = "default")
+  #' @description Test that `resolve_age_to_length_conversion()` reports when probability falls outside a fleet's length bins.
+  expect_message(
     in_bins <- FIMS:::resolve_age_to_length_conversion(
       data_big,
       years = 1:n_years,
       lengths = short_lengths
     ),
-    regexp = "rescaled to sum to 1\\s+within the fleet's length bins"
+    regexp = "probability outside\\s+the fleet's length bins"
   )
+  #' @description Test that `resolve_age_to_length_conversion()` leaves out fish outside a fleet's length bins rather than rescaling within them.
   expect_equal(
-    dplyr::summarize(in_bins, total = sum(value), .by = "age")[["total"]],
-    rep(1, n_ages)
+    in_bins[["value"]],
+    shared_conversion |>
+      dplyr::filter(length %in% short_lengths) |>
+      dplyr::arrange(age, length) |>
+      dplyr::pull(observed)
   )
 
   #' @description Test that `get_n_lengths()` works with a FIMSFrame object that does not have length data.
