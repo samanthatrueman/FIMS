@@ -884,12 +884,6 @@ validate_age_to_length_conversion <- function(data) {
       "i" = "Missing values, including -999, are not allowed."
     ))
   }
-  if (any(is.na(data[["unit"]]) | data[["unit"]] != "proportion")) {
-    cli::cli_abort(
-      "{.var age_to_length_conversion} rows must have
-      {.code unit = \"proportion\"}."
-    )
-  }
   # Sum the values the model uses. model_age_to_length_conversion() averages
   # them over fleets and timings.
   bad_ages <- data |>

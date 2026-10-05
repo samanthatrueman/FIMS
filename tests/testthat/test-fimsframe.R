@@ -286,15 +286,6 @@ test_that("`FIMSFrame()` returns correct error messages", {
     )
   }
 
-  #' @description Test that `FIMSFrame()` errors when age-to-length conversion rows are not proportions.
-  expect_error(
-    FIMSFrame(dplyr::mutate(
-      data_big,
-      unit = ifelse(type == "age_to_length_conversion", "number", unit)
-    )),
-    regexp = "rows must have\\s+`unit = \"proportion\"`"
-  )
-
   #' @description Test that `FIMSFrame` validators pick up on a missing age in age-composition data.
   expect_error(
     capture_messages(FIMSFrame(
