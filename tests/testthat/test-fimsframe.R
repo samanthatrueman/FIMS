@@ -248,9 +248,12 @@ test_that("`FIMSFrame()` returns correct error messages", {
     "FIMSFrame"
   )
 
-  #' @description Test that `FIMSFrame()` errors when the age-to-length conversion probabilities for an age do not sum to 1.
-  expect_error(
-    FIMSFrame(dplyr::mutate(
+  #' @description Test that `FIMSFrame()` does not warn about age-to-length conversion data that sum to 1 for each age.
+  expect_no_warning(FIMSFrame(data_big))
+
+  #' @description Test that `FIMSFrame()` warns when age-to-length conversion values for an age do not sum to 1, and that rescaling gives back the original table.
+  expect_warning(
+    half_age_3 <- FIMSFrame(dplyr::mutate(
       data_big,
       observed = ifelse(
         type == "age_to_length_conversion" & age == 3,
@@ -260,19 +263,30 @@ test_that("`FIMSFrame()` returns correct error messages", {
     )),
     regexp = "Age 3 sums to 0\\.5\\."
   )
-
-  #' @description Test that `FIMSFrame()` errors when a second set of age-to-length conversion probabilities makes the averaged sum for an age differ from 1.
-  expect_error(
-    FIMSFrame(dplyr::bind_rows(
-      data_big,
-      dplyr::filter(data_big, type == "age_to_length_conversion", age == 1) |>
-        dplyr::mutate(observed = 0.01)
-    )),
-    regexp = "Age 1 sums to"
+  expect_equal(
+    model_age_to_length_conversion(half_age_3),
+    model_age_to_length_conversion(FIMSFrame(data_big))
   )
 
-  #' @description Test that `FIMSFrame()` errors when an age-to-length conversion probability is greater than 1, less than 0, or missing.
-  for (bad_value in c(1.5, -0.1, NA, -999)) {
+  #' @description Test that age-to-length conversion values entered as counts give the same table as proportions.
+  expect_warning(
+    counts <- FIMSFrame(dplyr::mutate(
+      data_big,
+      observed = ifelse(
+        type == "age_to_length_conversion",
+        observed * 100,
+        observed
+      )
+    )),
+    regexp = "rescaled to sum to 1"
+  )
+  expect_equal(
+    model_age_to_length_conversion(counts),
+    model_age_to_length_conversion(FIMSFrame(data_big))
+  )
+
+  #' @description Test that `FIMSFrame()` errors when an age-to-length conversion value is negative or missing.
+  for (bad_value in c(-0.1, NA, -999)) {
     expect_error(
       FIMSFrame(dplyr::mutate(
         data_big,
@@ -282,9 +296,22 @@ test_that("`FIMSFrame()` returns correct error messages", {
           observed
         )
       )),
-      regexp = "must be\\s+probabilities between 0 and 1"
+      regexp = "must be 0 or\\s+greater"
     )
   }
+
+  #' @description Test that `FIMSFrame()` errors when the age-to-length conversion values for an age are all 0.
+  expect_error(
+    FIMSFrame(dplyr::mutate(
+      data_big,
+      observed = ifelse(
+        type == "age_to_length_conversion" & age == 3,
+        0,
+        observed
+      )
+    )),
+    regexp = "all 0 for these\\s+ages:\\s+3"
+  )
 
   #' @description Test that `FIMSFrame` validators pick up on a missing age in age-composition data.
   expect_error(

@@ -324,7 +324,8 @@ NULL
 #' Observations are ordered by age and length in the order defined by
 #' [FIMSFrame()]. When multiple observations are present across a single age
 #' and length, they are averaged because `age_to_length_conversion` data cannot
-#' vary across fleets or time.
+#' vary across fleets or time. The values for each age are then rescaled to sum
+#' to 1.
 #'
 #' @export
 #' @rdname model_
@@ -579,11 +580,8 @@ methods::setMethod(
       )
     }
     model_data |>
-      dplyr::group_by(.data[["age"]], .data[["length"]]) |>
-      dplyr::summarize(
-        mean_observed = mean(as.numeric(.data[["observed"]]), na.rm = TRUE)
-      ) |>
-      dplyr::pull(as.numeric(.data[["mean_observed"]]))
+      rescale_age_to_length_conversion() |>
+      dplyr::pull(.data[["value"]])
   }
 )
 #' @rdname model_
@@ -870,37 +868,59 @@ validate_dimension_of_conversion <- function(data, n_groups, n_timings) {
   }
 }
 
-# The length probabilities for each age must sum to 1, so the first and last
-# length bins hold the minus and plus groups. An age that sums to more or less
-# than 1 gets more or less weight in the expected length compositions.
+# The model uses one age-to-length table. Rows are averaged over fleets and
+# timings, and each age is rescaled to sum to 1 so values can be entered as
+# proportions or counts. An age that does not sum to 1 would otherwise get more
+# or less weight in the expected length compositions.
+rescale_age_to_length_conversion <- function(data) {
+  data |>
+    dplyr::summarize(
+      value = mean(as.numeric(.data[["observed"]]), na.rm = TRUE),
+      .by = c("age", "length")
+    ) |>
+    dplyr::mutate(
+      value = .data[["value"]] / sum(.data[["value"]]),
+      .by = "age"
+    ) |>
+    dplyr::arrange(.data[["age"]], .data[["length"]])
+}
+
 validate_age_to_length_conversion <- function(data) {
-  # Matches the tolerance for composition data.
-  rounding_tolerance <- 1e-3
   observed <- data[["observed"]]
-  if (any(is.na(observed) | observed < 0 | observed > 1 + rounding_tolerance)) {
+  if (any(is.na(observed) | observed < 0)) {
     cli::cli_abort(c(
-      "{.var age_to_length_conversion} values in {.var observed} must be
-      probabilities between 0 and 1.",
+      "{.var age_to_length_conversion} values in {.var observed} must be 0 or
+      greater.",
       "i" = "Missing values, including -999, are not allowed."
     ))
   }
-  # Sum the values the model uses. model_age_to_length_conversion() averages
-  # them over fleets and timings.
-  bad_ages <- data |>
+  age_sums <- data |>
     dplyr::summarize(
       observed = mean(.data[["observed"]]),
       .by = c("age", "length")
     ) |>
-    dplyr::summarize(sum_observed = sum(.data[["observed"]]), .by = "age") |>
-    dplyr::filter(abs(.data[["sum_observed"]] - 1) > rounding_tolerance)
-  if (NROW(bad_ages) > 0) {
-    age_messages <- glue::glue(
-      "Age {bad_ages[['age']]} sums to {signif(bad_ages[['sum_observed']], 4)}."
+    dplyr::summarize(sum_observed = sum(.data[["observed"]]), .by = "age")
+  zero_ages <- age_sums |>
+    dplyr::filter(.data[["sum_observed"]] == 0) |>
+    dplyr::pull(.data[["age"]])
+  if (length(zero_ages) > 0) {
+    cli::cli_abort(
+      "{.var age_to_length_conversion} values are all 0 for these ages:
+      {zero_ages}."
     )
+  }
+  # Matches the tolerance for composition data.
+  rescaled_ages <- dplyr::filter(
+    age_sums,
+    abs(.data[["sum_observed"]] - 1) > 1e-3
+  )
+  if (NROW(rescaled_ages) > 0) {
+    sums <- signif(rescaled_ages[["sum_observed"]], 4)
+    age_messages <- glue::glue("Age {rescaled_ages[['age']]} sums to {sums}.")
     names(age_messages) <- rep("*", length(age_messages))
-    cli::cli_abort(c(
-      "{.var age_to_length_conversion} probabilities must sum to 1 for each
-      age.",
+    cli::cli_warn(c(
+      "{.var age_to_length_conversion} values are rescaled to sum to 1 for
+      each age.",
       age_messages
     ))
   }
