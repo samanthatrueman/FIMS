@@ -535,11 +535,11 @@ initialize_fleet <- function(parameters, data, fleet, linked_ids) {
       dplyr::arrange(.data$timing, .data$age_order, .data$length_order)
 
     # The C++ reads 1 table for every year, or 1 table per year.
-    n_tables <- ifelse(
-      all(is.na(age_to_length_conversion_fixed_data[["timing"]])),
-      1,
+    n_tables <- if (all(is.na(age_to_length_conversion_fixed_data[["timing"]]))) {
+      1
+    } else {
       get_n_years(data)
-    )
+    }
     expected_age_to_length_conversion_rows <- n_tables * get_n_ages(data) * length(fleet_length_bins)
 
     if (nrow(age_to_length_conversion_fixed_data) != expected_age_to_length_conversion_rows) {

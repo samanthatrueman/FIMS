@@ -565,6 +565,10 @@ methods::setMethod(
   "model_age_to_length_conversion",
   "FIMSFrame",
   function(x, fleet = NA) {
+    # A misspelled fleet name would otherwise fall back to the shared rows.
+    if (length(fleet) == 1 && !is.na(fleet)) {
+      assert_presence_of_fleet(x, fleet)
+    }
     resolve_age_to_length_conversion(
       as.data.frame(x@data),
       years = get_start_year(x):get_end_year(x),
@@ -881,6 +885,13 @@ resolve_age_to_length_conversion <- function(data, years, fleet = NA,
   } else {
     paste0("fleet \"", fleet, "\"")
   }
+  missing_message <- if (is.na(fleet)) {
+    "No shared (fleet = NA) {.var age_to_length_conversion} rows cover these
+    years: {missing_years}."
+  } else {
+    "No {.var age_to_length_conversion} rows cover fleet {.val {fleet}} in
+    these years: {missing_years}."
+  }
   conversion_data <- dplyr::filter(
     data,
     .data[["type"]] == "age_to_length_conversion"
@@ -904,10 +915,7 @@ resolve_age_to_length_conversion <- function(data, years, fleet = NA,
     purrr::list_rbind()
   if (!all(sources[["has_source"]])) {
     missing_years <- sources[["timing"]][!sources[["has_source"]]]
-    cli::cli_abort(
-      "No {.var age_to_length_conversion} rows apply to {owner} in these
-      years: {missing_years}."
-    )
+    cli::cli_abort(missing_message)
   }
   n_sources <- dplyr::n_distinct(
     sources[["source_fleet"]],
@@ -933,20 +941,25 @@ resolve_age_to_length_conversion <- function(data, years, fleet = NA,
     dplyr::mutate(
       value = .data[["observed"]] / sum(.data[["observed"]]),
       .by = c("timing", "age")
-    ) |>
-    dplyr::select(dplyr::all_of(c("timing", "age", "length", "value")))
+    )
   if (!is.null(lengths)) {
     conversion <- dplyr::filter(conversion, .data[["length"]] %in% lengths)
+    # 1 line per age for each table used, not for each year that uses it.
     in_bins <- conversion |>
+      dplyr::distinct(dplyr::across(dplyr::all_of(
+        c("source_fleet", "source_timing", "age", "length", "value")
+      ))) |>
       dplyr::summarize(
         in_bins = sum(.data[["value"]]),
-        .by = c("timing", "age")
+        .by = c("source_fleet", "source_timing", "age")
       ) |>
       dplyr::mutate(
-        label = paste0(
-          "Age ", .data[["age"]],
-          ifelse(is.na(.data[["timing"]]), "", paste0(" (", .data[["timing"]], ")"))
-        )
+        year = ifelse(
+          is.na(.data[["source_timing"]]),
+          "",
+          paste0(" (", .data[["source_timing"]], ")")
+        ),
+        label = paste0("Age ", .data[["age"]], .data[["year"]])
       )
     # Matches the tolerance for composition data.
     cut_ages <- dplyr::filter(in_bins, .data[["in_bins"]] < 1 - 1e-3)
@@ -963,13 +976,14 @@ resolve_age_to_length_conversion <- function(data, years, fleet = NA,
       ))
     }
   }
-  dplyr::arrange(
-    conversion,
-    .data[["timing"]], .data[["age"]], .data[["length"]]
-  )
+  conversion |>
+    dplyr::select(dplyr::all_of(c("timing", "age", "length", "value"))) |>
+    dplyr::arrange(.data[["timing"]], .data[["age"]], .data[["length"]])
 }
 
-validate_age_to_length_conversion <- function(data, years) {
+validate_age_to_length_conversion <- function(data, ages, years,
+                                              fleet_length_bins) {
+  all_data <- data
   # A misspelled fleet name in these rows would add a fleet to the model.
   other_fleets <- data |>
     dplyr::filter(.data[["type"]] != "age_to_length_conversion") |>
@@ -1076,6 +1090,35 @@ validate_age_to_length_conversion <- function(data, years) {
       each age.",
       age_messages
     ))
+  }
+  # Check the table each fleet with length data uses, so missing years, ages,
+  # or lengths are found here rather than when the model is built.
+  for (fleet in names(fleet_length_bins)) {
+    bins <- fleet_length_bins[[fleet]]
+    if (length(bins) == 0) {
+      next
+    }
+    fleet_table <- resolve_age_to_length_conversion(all_data, years, fleet) |>
+      dplyr::filter(.data[["length"]] %in% bins)
+    missing_cells <- tidyr::expand_grid(
+      timing = unique(fleet_table[["timing"]]),
+      age = ages,
+      length = bins
+    ) |>
+      dplyr::anti_join(
+        fleet_table,
+        by = c("timing", "age", "length"),
+        na_matches = "na"
+      )
+    if (NROW(missing_cells) > 0) {
+      cli::cli_abort(c(
+        "The {.var age_to_length_conversion} table for fleet {.val {fleet}} is
+        missing {NROW(missing_cells)} age and length combination{?s} in the
+        fleet's length bins.",
+        "i" = "Each table needs every model age and every length bin of the
+        fleets that use it."
+      ))
+    }
   }
   invisible(TRUE)
 }
@@ -1335,7 +1378,12 @@ FIMSFrame <- function(data) {
       conversion_data <- dplyr::filter(data, .data$type == "age_to_length_conversion")
       if (NROW(conversion_data) > 0) {
         conversion_lengths <- sort(na.omit(unique(conversion_data[["length"]])))
-        validate_age_to_length_conversion(data, years)
+        validate_age_to_length_conversion(
+          data,
+          ages = ages,
+          years = years,
+          fleet_length_bins = resolved_fleet_length_bins
+        )
         validate_dimension_of_conversion(
           conversion_data,
           n_groups = n_ages * length(conversion_lengths),

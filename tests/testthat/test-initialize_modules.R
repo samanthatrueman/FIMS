@@ -488,6 +488,7 @@ test_that("`initialize_fleet()` uses a fleet's own age-to-length conversion rows
   )
   #' @description Test that `initialize_fleet()` passes 1 age-to-length conversion table per year when a year has its own rows.
   expect_equal(by_year[, 5], rep(uniform_probability, length(shared_values)))
+  #' @description Test that `initialize_fleet()` passes the default age-to-length conversion table for years without their own rows.
   expect_equal(by_year[, 4], shared_values)
   clear()
 
@@ -511,6 +512,7 @@ test_that("`initialize_fleet()` uses a fleet's own age-to-length conversion rows
     rep(uniform_probability, nrow(year_comp)),
     tolerance = 1e-8
   )
+  #' @description Test that a year-5 age-to-length conversion table leaves the expected length composition in other years unchanged.
   expect_equal(year_comp[, 4], base_comp[, 4])
 })
 

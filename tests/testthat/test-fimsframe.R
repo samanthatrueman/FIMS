@@ -526,20 +526,36 @@ test_that("`model_*()` returns correct outputs for edge cases", {
   #' @description Test that `model_age_to_length_conversion()` uses the `timing = NA` rows for years without their own rows.
   expect_equal(by_year[, 4], model_age_to_length_conversion(fims_frame))
 
-  #' @description Test that `model_age_to_length_conversion()` errors when a fleet has no rows for some years.
-  fleet_year_data <- dplyr::bind_rows(
-    dplyr::filter(data_big, type != "age_to_length_conversion"),
-    dplyr::mutate(shared_conversion, fleet = "fleet1", timing = 1)
-  ) |> FIMSFrame()
+  #' @description Test that `FIMSFrame()` errors when a fleet with length data has no age-to-length conversion rows for some years.
   expect_error(
-    model_age_to_length_conversion(fleet_year_data, "fleet1"),
-    regexp = "rows apply to fleet \"fleet1\" in these\\s+years: 2"
+    FIMSFrame(dplyr::bind_rows(
+      dplyr::filter(data_big, type != "age_to_length_conversion"),
+      dplyr::mutate(shared_conversion, fleet = "fleet1", timing = 1)
+    )),
+    regexp = "rows cover fleet \"fleet1\" in\\s+these years: 2"
+  )
+
+  #' @description Test that `FIMSFrame()` errors when a fleet's age-to-length conversion table is missing an age.
+  # Dropping a middle age keeps every length above 0.
+  expect_error(
+    FIMSFrame(dplyr::bind_rows(
+      data_big,
+      dplyr::filter(shared_conversion, age != 6) |>
+        dplyr::mutate(fleet = "fleet1")
+    )),
+    regexp = "fleet \"fleet1\" is\\s+missing"
   )
 
   #' @description Test that `model_age_to_length_conversion()` errors when more than 1 fleet is given.
   expect_error(
     model_age_to_length_conversion(fleet_data, c("fleet1", "survey1")),
     regexp = "must be 1 fleet name"
+  )
+
+  #' @description Test that `model_age_to_length_conversion()` errors on a fleet name that is not in the data.
+  expect_error(
+    model_age_to_length_conversion(fleet_data, "flet1"),
+    regexp = "not present in the"
   )
 
   # Keep the lengths up to 500, so the largest ages lose probability.
