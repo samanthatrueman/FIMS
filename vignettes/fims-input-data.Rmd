@@ -283,7 +283,7 @@ get_data(data_with_ageing_error) |>
   head(3)
 ```
 
-Stock Synthesis and the AgeingError package describe ageing error by the mean and standard deviation of observed age at each true age, from age 0 to the population maximum age. In that convention an observed age covers the year from that age to the next, so unbiased readers have a mean of true age + 0.5 (entered as -1 in Stock Synthesis), and a standard deviation of 0.001 means almost no ageing error. The probability of each observed age is the normal probability over its year, and each row is divided by its total. The first and last observed ages collect the tails, as FIMS does when it folds observed ages outside the model ages. The example below uses this convention, so vectors from Stock Synthesis or the AgeingError package can be used directly after dropping true ages outside the model ages.
+Stock Synthesis and the AgeingError package describe ageing error by the mean and standard deviation of observed age at each true age, from age 0 to the population maximum age. In that convention an observed age covers the year from that age to the next, so unbiased readers have a mean of true age + 0.5 (entered as -1 in Stock Synthesis), and a standard deviation of 0.001 means almost no ageing error. The probability of each observed age is the normal probability over its year. The first and last observed ages collect the tails, as FIMS does when it folds observed ages outside the model ages, so each row sums to 1. The example below uses this convention, so vectors from Stock Synthesis or the AgeingError package can be used directly after dropping true ages outside the model ages.
 
 ```{r ageing_error-from-mean-sd}
 # Rows are true ages and columns are observed ages. Here readers are unbiased
@@ -292,10 +292,15 @@ n_ages <- n_ageing_error_ages
 mean_observed_age <- matrix(ageing_error_ages + 0.5, n_ages, n_ages)
 sd_observed_age <- matrix(0.1 * ageing_error_ages, n_ages, n_ages)
 observed_age <- matrix(ageing_error_ages, n_ages, n_ages, byrow = TRUE)
-probability <-
-  stats::pnorm(observed_age + 1, mean_observed_age, sd_observed_age) -
-  stats::pnorm(observed_age, mean_observed_age, sd_observed_age)
-ageing_error_matrix <- probability / rowSums(probability)
+# The first observed age starts at -Inf and the last ends at Inf so they
+# collect the tails.
+lower_bound <- observed_age
+lower_bound[, 1] <- -Inf
+upper_bound <- observed_age + 1
+upper_bound[, n_ages] <- Inf
+ageing_error_matrix <-
+  stats::pnorm(upper_bound, mean_observed_age, sd_observed_age) -
+  stats::pnorm(lower_bound, mean_observed_age, sd_observed_age)
 round(ageing_error_matrix[1:4, 1:4], 3)
 ```
 
