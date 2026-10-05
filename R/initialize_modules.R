@@ -523,16 +523,20 @@ initialize_fleet <- function(parameters, data, fleet, linked_ids) {
 
   if (use_age_to_length_conversion_fixed_path) {
     age_to_length_conversion_fixed_data <- get_data(data) |>
-      select_age_to_length_conversion(fleet) |>
-      rescale_age_to_length_conversion() |>
+      resolve_age_to_length_conversion(
+        years = get_start_year(data):get_end_year(data),
+        fleet = fleet
+      ) |>
       dplyr::filter(.data$length %in% fleet_length_bins) |>
       dplyr::mutate(
         age_order = match(.data$age, get_ages(data)),
         length_order = match(.data$length, fleet_length_bins)
       ) |>
-      dplyr::arrange(.data$age_order, .data$length_order)
+      dplyr::arrange(.data$timing, .data$age_order, .data$length_order)
 
-    expected_age_to_length_conversion_rows <- get_n_ages(data) * length(fleet_length_bins)
+    # 1 table for every year, or 1 table per year.
+    n_tables <- dplyr::n_distinct(age_to_length_conversion_fixed_data$timing)
+    expected_age_to_length_conversion_rows <- n_tables * get_n_ages(data) * length(fleet_length_bins)
 
     if (nrow(age_to_length_conversion_fixed_data) != expected_age_to_length_conversion_rows) {
       cli::cli_abort(c(

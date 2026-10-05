@@ -444,7 +444,7 @@ test_that("`initialize_fleet()` uses a fleet's own age-to-length conversion rows
     data_big,
     dplyr::mutate(conversion, fleet = "fleet1", observed = uniform_probability)
   ))
-  fleet_values <- function(fleet) {
+  fleet_values <- function(fleet, fleet_data) {
     selectivity <- FIMS:::initialize_selectivity(
       parameters = default_parameters,
       data = fleet_data,
@@ -468,13 +468,27 @@ test_that("`initialize_fleet()` uses a fleet's own age-to-length conversion rows
       \(i) module$age_to_length_conversion[i]$value
     )
   }
+  shared_values <- model_age_to_length_conversion(data)
   #' @description Test that `initialize_fleet()` uses a fleet's own age-to-length conversion rows when it has them.
   expect_equal(
-    fleet_values("fleet1"),
-    rep(uniform_probability, length(model_age_to_length_conversion(data)))
+    fleet_values("fleet1", fleet_data),
+    rep(uniform_probability, length(shared_values))
   )
   #' @description Test that `initialize_fleet()` uses the shared age-to-length conversion rows for a fleet without its own.
-  expect_equal(fleet_values("survey1"), model_age_to_length_conversion(data))
+  expect_equal(fleet_values("survey1", fleet_data), shared_values)
+
+  # Year 5 gets a uniform table and every other year keeps the default.
+  year_data <- FIMSFrame(dplyr::bind_rows(
+    data_big,
+    dplyr::mutate(conversion, timing = 5, observed = uniform_probability)
+  ))
+  by_year <- matrix(
+    fleet_values("fleet1", year_data),
+    ncol = get_n_years(year_data)
+  )
+  #' @description Test that `initialize_fleet()` passes 1 age-to-length conversion table per year when a year has its own rows.
+  expect_equal(by_year[, 5], rep(uniform_probability, length(shared_values)))
+  expect_equal(by_year[, 4], shared_values)
   clear()
 })
 

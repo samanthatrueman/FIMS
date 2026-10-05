@@ -119,13 +119,13 @@ present, values are averaged across fleets.
 
 \subsection{\code{model_age_to_length_conversion()}}{
 
-Returns a numeric vector of age-to-length conversion observations.
-Observations are ordered by age and length in the order defined by
-\code{\link[=FIMSFrame]{FIMSFrame()}}. A fleet uses its own rows when it has them and the shared
-rows (\code{fleet = NA}) otherwise. Use the default \code{fleet = NA} for the shared
-rows. When multiple observations are present across a single age and length,
-they are averaged because \code{age_to_length_conversion} data cannot vary over
-time. The values for each age are then rescaled to sum to 1.
+Returns a numeric vector of age-to-length conversion observations for
+\code{fleet}, or for the shared rows (\code{fleet = NA}) by default. For each year, a
+fleet uses its own rows for that year, then its own rows with
+\code{timing = NA}, then the shared rows for that year, then the shared rows with
+\code{timing = NA}. If every year uses the same rows, 1 table ordered by age and
+length is returned. Otherwise 1 table per year is returned, ordered by year,
+age, and length. The values for each age are rescaled to sum to 1.
 }
 }
 \keyword{FIMSFrame}
