@@ -971,8 +971,9 @@ validate_ageing_error <- function(data, ages, years) {
       "x" = "Check the duplicated rows for: {duplicated_groups}."
     ))
   }
-  # The numbers of fish at true ages outside the model are unknown, so their
-  # rows cannot be combined into the model ages and are not used.
+  # Each row is the probability of an observed age given a true age.
+  # Combining rows for different true ages needs the numbers of fish at those
+  # ages, which are unknown, so rows outside the model ages are not used.
   outside_true_ages <- sort(setdiff(data[["true_age"]], ages))
   if (length(outside_true_ages) > 0) {
     cli::cli_warn(
