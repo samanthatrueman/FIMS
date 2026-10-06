@@ -236,7 +236,7 @@ Each row gives the probability that a fish of one true age is read as one observ
 
 Each set of rows is a full matrix over the model ages, and the probabilities for each true age must sum to 1. Sums within 1e-3 of 1 are rescaled to exactly 1, and larger differences are an error, so rescale matrices rounded to fewer than 3 decimal places before adding them. Probability on observed ages below the youngest model age is added to that age, and above the oldest model age to the plus group, with a warning. Every observed age needs a total probability, summed across true ages, of at least 1e-3, because an expected proportion of 0 makes the likelihood undefined.
 
-True ages must be exactly the model ages. Drop true ages below the youngest model age, e.g., age 0 in a model that starts at age 1, and combine rows for true ages above the plus group.
+True ages, in `uncertainty`, must be exactly the model ages. Before adding the matrix, drop true ages below the youngest model age, e.g., true age 0 in a model that starts at age 1, and combine true ages above the plus group into the plus-group true age. This differs from observed ages, which FIMS adds to the youngest age and the plus group as described above.
 
 Ageing error can vary by fleet and year. For each fleet and year, the most specific rows are used:
 
