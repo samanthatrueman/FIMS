@@ -971,23 +971,30 @@ validate_ageing_error <- function(data, ages, years) {
       "x" = "Check the duplicated rows for: {duplicated_groups}."
     ))
   }
+  # The numbers of fish at true ages outside the model are unknown, so their
+  # rows cannot be combined into the model ages and are not used.
+  outside_true_ages <- sort(setdiff(data[["true_age"]], ages))
+  if (length(outside_true_ages) > 0) {
+    cli::cli_warn(
+      "{.var ageing_error} rows for true ages outside the model ages
+      ({min(ages)}-{max(ages)}) are not used: {outside_true_ages}."
+    )
+    data <- dplyr::filter(data, .data[["true_age"]] %in% ages)
+  }
   span_message <- "{.var ageing_error} must span the model ages
     ({min(ages)}-{max(ages)})."
-  groups_wrong_true_ages <- data |>
+  groups_missing_true_ages <- data |>
     dplyr::summarize(
-      complete = setequal(.data[["true_age"]], ages),
+      complete = all(ages %in% .data[["true_age"]]),
       .by = dplyr::all_of("group")
     ) |>
     dplyr::filter(!.data[["complete"]]) |>
     dplyr::pull(.data[["group"]])
-  if (length(groups_wrong_true_ages) > 0) {
+  if (length(groups_missing_true_ages) > 0) {
     cli::cli_abort(c(
       span_message,
-      "x" = "The true ages in {.var uncertainty} must be exactly the model ages
-      for: {groups_wrong_true_ages}.",
-      "i" = "Before adding the matrix, drop true ages below the youngest model
-      age and combine true ages above the plus group into the plus-group true
-      age. Observed ages outside the model ages are handled automatically."
+      "x" = "Every model age needs rows as a true age in {.var uncertainty}
+      for: {groups_missing_true_ages}."
     ))
   }
   groups_missing_observed_ages <- data |>
@@ -1020,13 +1027,15 @@ validate_ageing_error <- function(data, ages, years) {
       plus group."
     ))
   }
-  # Sums within the tolerance are rescaled to 1 in fold_ageing_error().
-  bad_sums <- data |>
+  row_sums <- data |>
     dplyr::summarize(
       total = sum(.data[["observed"]]),
       .by = dplyr::all_of(c("group", "true_age"))
-    ) |>
-    dplyr::filter(abs(.data[["total"]] - 1) > rounding_tolerance)
+    )
+  bad_sums <- dplyr::filter(
+    row_sums,
+    abs(.data[["total"]] - 1) > rounding_tolerance
+  )
   if (NROW(bad_sums) > 0) {
     bad_rows <- unique(
       paste(bad_sums[["group"]], "true age", bad_sums[["true_age"]])
@@ -1039,6 +1048,18 @@ validate_ageing_error <- function(data, ages, years) {
       observed age. If the values were rounded, divide each true age's
       probabilities by their total."
     ))
+  }
+  # fold_ageing_error() rescales sums within the tolerance to exactly 1. Sums
+  # that differ from 1 only by floating-point error are not reported.
+  rescaled_sums <- dplyr::filter(row_sums, abs(.data[["total"]] - 1) > 1e-8)
+  if (NROW(rescaled_sums) > 0) {
+    rescaled_rows <- unique(
+      paste(rescaled_sums[["group"]], "true age", rescaled_sums[["true_age"]])
+    )
+    cli::cli_warn(
+      "{.var ageing_error} probabilities are rescaled to sum to 1 for these
+      true ages: {rescaled_rows}."
+    )
   }
 
   # An expected proportion of 0 makes the multinomial likelihood NaN in TMB,
@@ -1095,14 +1116,16 @@ ageing_error_group_label <- function(fleet, timing) {
   )
 }
 
-# Adds observed ages outside the model ages to the youngest age or the plus
-# group, then divides each true age by its total so it sums to exactly 1.
+# Drops true ages outside the model ages, adds observed ages outside the model
+# ages to the youngest age or the plus group, then divides each true age by
+# its total so it sums to exactly 1.
 fold_ageing_error <- function(data, ages) {
   data |>
     dplyr::mutate(
       true_age = as.integer(as.character(.data[["uncertainty"]])),
       age = pmin(pmax(.data[["age"]], min(ages)), max(ages))
     ) |>
+    dplyr::filter(.data[["true_age"]] %in% ages) |>
     dplyr::summarize(
       observed = sum(.data[["observed"]]),
       .by = dplyr::all_of(c("fleet", "timing", "true_age", "age"))

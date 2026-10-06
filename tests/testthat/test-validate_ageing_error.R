@@ -93,18 +93,28 @@ test_that("validate_ageing_error() works with correct inputs", {
     dplyr::bind_rows()
   expect_true(validate_ageing_error(with_data(all_years), ages, years))
 
-  #' @description Test that probabilities summing to within 1e-3 of 1 are valid.
+  #' @description Test that probabilities summing to within 1e-3 of 1 are valid and give a warning that they are rescaled.
   rounded <- reads_older
   rounded[2, 2] <- rounded[2, 2] + 9e-4
-  expect_true(
-    validate_ageing_error(with_data(ageing_error_rows(rounded)), ages, years)
+  expect_warning(
+    expect_true(
+      validate_ageing_error(with_data(ageing_error_rows(rounded)), ages, years)
+    ),
+    "rescaled to sum to 1"
   )
 
-  #' @description Test that a single probability rounded to just above 1 is valid.
+  #' @description Test that a single probability rounded to just above 1 is valid and gives a warning that it is rescaled.
   rounded_up <- diag(n_ages)
   rounded_up[1, 1] <- 1 + 4e-4
-  expect_true(
-    validate_ageing_error(with_data(ageing_error_rows(rounded_up)), ages, years)
+  expect_warning(
+    expect_true(
+      validate_ageing_error(
+        with_data(ageing_error_rows(rounded_up)),
+        ages,
+        years
+      )
+    ),
+    "rescaled to sum to 1"
   )
 
   #' @description Test that data without ageing_error rows are valid.
@@ -342,14 +352,6 @@ test_that("validate_ageing_error() returns correct error messages", {
     "must span the model ages"
   )
 
-  #' @description Test that a true age outside the model ages returns an error.
-  extra_true_age <- ageing_error_rows() |>
-    dplyr::filter(.data[["uncertainty"]] == max(ages)) |>
-    dplyr::mutate(uncertainty = as.character(max(ages) + 1))
-  expect_error(
-    check(ageing_error_rows(), extra_true_age),
-    "must span the model ages"
-  )
 
   #' @description Test that probabilities that do not sum to 1 return an error.
   off_by_more <- reads_older
@@ -403,6 +405,33 @@ test_that("validate_ageing_error() returns correct error messages", {
 })
 
 test_that("validate_ageing_error() warns when ageing_error rows are not used", {
+  # Rows for true ages 0 and 13, outside the model ages 1 to 12.
+  outside_true_ages <- dplyr::bind_rows(
+    ageing_error_rows() |>
+      dplyr::filter(.data[["uncertainty"]] == min(ages)) |>
+      dplyr::mutate(uncertainty = as.character(min(ages) - 1)),
+    ageing_error_rows() |>
+      dplyr::filter(.data[["uncertainty"]] == max(ages)) |>
+      dplyr::mutate(uncertainty = as.character(max(ages) + 1))
+  )
+  #' @description Test that rows for true ages outside the model ages give a warning.
+  expect_warning(
+    validate_ageing_error(
+      with_data(ageing_error_rows(), outside_true_ages),
+      ages,
+      years
+    ),
+    "true ages outside the model ages"
+  )
+  resolved <- resolve(ageing_error_rows(), outside_true_ages)
+  #' @description Test that rows for true ages outside the model ages are not used.
+  expect_equal(sort(unique(resolved[["true_age"]])), ages)
+  #' @description Test that dropping those rows leaves the matrix for the model ages unchanged.
+  expect_equal(
+    resolved[resolved[["fleet"]] == "fleet1", ][["observed"]],
+    as.vector(t(reads_older))
+  )
+
   no_survey_age_comp <- dplyr::filter(
     data_big,
     !(.data[["type"]] == "age_comp" & .data[["fleet"]] == "survey1")
