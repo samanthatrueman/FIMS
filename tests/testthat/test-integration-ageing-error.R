@@ -37,22 +37,6 @@ ageing_error_rows <- function(matrix = reads_older, fleet = NA_character_,
   )
 }
 
-# Run the model at its initial values and return the objective and the TMB
-# report, which keeps full precision, unlike get_estimates().
-run_at_initial_values <- function(data) {
-  data_frame <- FIMSFrame(data)
-  fit <- suppressMessages(setup_default_parameters(data_frame)) |>
-    initialize_fims(data = data_frame) |>
-    fit_fims(optimize = FALSE)
-  obj <- get_obj(fit)
-  output <- list(
-    objective = obj[["fn"]](obj[["par"]]),
-    report = obj[["report"]](obj[["env"]][["par"]])
-  )
-  clear()
-  output
-}
-
 # A year x age matrix of a fleet's reported quantity. Fleet 1 is fleet1, which
 # has catch, and fleet 2 is survey1, which has an index.
 by_year_and_age <- function(report, quantity, fleet) {
