@@ -558,26 +558,52 @@ test_that("`model_*()` returns correct outputs for edge cases", {
     regexp = "not present in the"
   )
 
-  # Keep the lengths up to 500, so the largest ages lose probability.
-  short_lengths <- sort(unique(shared_conversion[["length"]]))
-  short_lengths <- short_lengths[short_lengths <= 500]
-  withr::local_options(rlib_message_verbosity = "default")
-  #' @description Test that `resolve_age_to_length_conversion()` reports when probability falls outside a fleet's length bins.
-  expect_message(
+  # Bins from 100 to 500, so fish below and above them are added to the end
+  # bins.
+  short_lengths <- seq(100, 500, by = 50)
+  #' @description Test that `resolve_age_to_length_conversion()` warns when probability falls outside a fleet's length bins.
+  expect_warning(
     in_bins <- FIMS:::resolve_age_to_length_conversion(
       data_big,
       years = 1:n_years,
       lengths = short_lengths
     ),
-    regexp = "probability outside\\s+the fleet's length bins"
+    regexp = "added to the first and last bins"
   )
-  #' @description Test that `resolve_age_to_length_conversion()` leaves out fish outside a fleet's length bins rather than rescaling within them.
+  expected_bins <- shared_conversion |>
+    dplyr::mutate(length = pmin(pmax(length, 100), 500)) |>
+    dplyr::summarize(value = sum(observed), .by = c("age", "length")) |>
+    dplyr::arrange(age, length)
+  #' @description Test that `resolve_age_to_length_conversion()` adds probability outside a fleet's length bins to the first and last bins.
+  expect_equal(in_bins[["value"]], expected_bins[["value"]])
+  #' @description Test that each age still sums to 1 within a fleet's length bins.
   expect_equal(
-    in_bins[["value"]],
-    shared_conversion |>
-      dplyr::filter(length %in% short_lengths) |>
-      dplyr::arrange(age, length) |>
-      dplyr::pull(observed)
+    dplyr::summarize(in_bins, total = sum(value), .by = "age")[["total"]],
+    rep(1, n_ages)
+  )
+
+  #' @description Test that `resolve_age_to_length_conversion()` errors on conversion lengths between a fleet's length bins.
+  expect_error(
+    FIMS:::resolve_age_to_length_conversion(
+      data_big,
+      years = 1:n_years,
+      lengths = seq(0, 1100, by = 100)
+    ),
+    regexp = "lengths between the\\s+fleet's length bins"
+  )
+
+  #' @description Test that `FIMSFrame()` drops age-to-length conversion rows for ages outside the model ages with a warning.
+  expect_warning(
+    extra_age_frame <- FIMSFrame(dplyr::bind_rows(
+      data_big,
+      dplyr::filter(shared_conversion, age == max(age)) |>
+        dplyr::mutate(age = 13)
+    )),
+    regexp = "outside the model ages\\s+\\(1-12\\) are not used: 13"
+  )
+  expect_equal(
+    model_age_to_length_conversion(extra_age_frame),
+    model_age_to_length_conversion(fims_frame)
   )
 
   #' @description Test that `get_n_lengths()` works with a FIMSFrame object that does not have length data.

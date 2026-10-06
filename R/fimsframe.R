@@ -327,9 +327,11 @@ NULL
 #' `timing = NA`. If every year uses the same rows, 1 table ordered by age and
 #' length is returned. Otherwise 1 table per year is returned, ordered by year,
 #' age, and length. The values for each age are rescaled to sum to 1 over all
-#' conversion lengths. The model cuts the table to each fleet's length bins
-#' without rescaling again, so fish outside the bins are left out, and reports
-#' a message when that happens.
+#' conversion lengths. For each fleet, the model adds probability for lengths
+#' below the first and above the last of the fleet's length bins to those bins,
+#' with a warning. Length is conditional on age, so length probabilities can be
+#' added together, but rows for ages outside the model ages are dropped by
+#' [FIMSFrame()] with a warning.
 #'
 #' @export
 #' @rdname model_
@@ -869,10 +871,11 @@ validate_dimension_of_conversion <- function(data, n_groups, n_timings) {
 # Each age is rescaled to sum to 1 so values can be entered as proportions or
 # counts. An age that does not sum to 1 would otherwise get more or less weight
 # in the expected length compositions. Given a fleet's length bins in
-# `lengths`, the table is cut to those bins and not rescaled again. Length data
-# may only cover fish in that range, so fish outside the bins are left out
-# rather than added to other bins, and the expected composition is normalized
-# over all ages later.
+# `lengths`, probability for lengths below the first bin is added to the first
+# bin and above the last bin to the last bin, so the end bins hold the minus
+# and plus groups, as observed ages are folded for ageing_error. Lengths
+# between bins are an error because assigning them depends on whether bins
+# are lower edges or centers.
 resolve_age_to_length_conversion <- function(data, years, fleet = NA,
                                              lengths = NULL) {
   if (length(fleet) != 1) {
@@ -943,14 +946,33 @@ resolve_age_to_length_conversion <- function(data, years, fleet = NA,
       .by = c("timing", "age")
     )
   if (!is.null(lengths)) {
-    conversion <- dplyr::filter(conversion, .data[["length"]] %in% lengths)
+    first_bin <- min(lengths)
+    last_bin <- max(lengths)
+    conversion_lengths <- unique(conversion[["length"]])
+    between_bins <- conversion_lengths[
+      conversion_lengths > first_bin & conversion_lengths < last_bin &
+        !conversion_lengths %in% lengths
+    ]
+    if (length(between_bins) > 0) {
+      cli::cli_abort(c(
+        "{.var age_to_length_conversion} for {owner} has lengths between the
+        fleet's length bins: {sort(between_bins)}.",
+        "i" = "Give the conversion on the fleet's length bins."
+      ))
+    }
+    conversion <- dplyr::mutate(
+      conversion,
+      outside = .data[["length"]] < first_bin | .data[["length"]] > last_bin,
+      length = pmin(pmax(.data[["length"]], first_bin), last_bin)
+    )
     # 1 line per age for each table used, not for each year that uses it.
-    in_bins <- conversion |>
+    moved <- conversion |>
+      dplyr::filter(.data[["outside"]]) |>
       dplyr::distinct(dplyr::across(dplyr::all_of(
         c("source_fleet", "source_timing", "age", "length", "value")
       ))) |>
       dplyr::summarize(
-        in_bins = sum(.data[["value"]]),
+        moved = sum(.data[["value"]]),
         .by = c("source_fleet", "source_timing", "age")
       ) |>
       dplyr::mutate(
@@ -960,25 +982,49 @@ resolve_age_to_length_conversion <- function(data, years, fleet = NA,
           paste0(" (", .data[["source_timing"]], ")")
         ),
         label = paste0("Age ", .data[["age"]], .data[["year"]])
-      )
-    # Matches the tolerance for composition data.
-    cut_ages <- dplyr::filter(in_bins, .data[["in_bins"]] < 1 - 1e-3)
-    if (NROW(cut_ages) > 0) {
-      shares <- signif(cut_ages[["in_bins"]], 4)
-      age_messages <- glue::glue(
-        "{cut_ages[['label']]} has {shares} in the bins."
-      )
+      ) |>
+      # Matches the tolerance for composition data.
+      dplyr::filter(.data[["moved"]] > 1e-3)
+    if (NROW(moved) > 0) {
+      shares <- signif(moved[["moved"]], 4)
+      age_messages <- glue::glue("{moved[['label']]}: {shares} moved.")
       names(age_messages) <- rep("*", length(age_messages))
-      cli::cli_inform(c(
-        "{.var age_to_length_conversion} for {owner} has probability outside
-        the fleet's length bins. Fish outside the bins are left out.",
+      cli::cli_warn(c(
+        "{.var age_to_length_conversion} for {owner} has lengths outside the
+        fleet's length bins ({first_bin}-{last_bin}).",
+        "i" = "Their probabilities are added to the first and last bins.",
         age_messages
       ))
     }
+    conversion <- dplyr::summarize(
+      conversion,
+      value = sum(.data[["value"]]),
+      .by = c("timing", "age", "length")
+    )
   }
   conversion |>
     dplyr::select(dplyr::all_of(c("timing", "age", "length", "value"))) |>
     dplyr::arrange(.data[["timing"]], .data[["age"]], .data[["length"]])
+}
+
+# Length is conditional on age, so rows for ages outside the model ages cannot
+# be added to other ages. The numbers at age needed to combine them are not in
+# the model, so the rows are dropped.
+drop_age_to_length_conversion_ages <- function(data, ages) {
+  if (length(ages) == 0) {
+    return(data)
+  }
+  outside <- data[["type"]] == "age_to_length_conversion" &
+    !data[["age"]] %in% ages
+  if (!any(outside)) {
+    return(data)
+  }
+  dropped_ages <- sort(unique(data[["age"]][outside]))
+  cli::cli_warn(
+    "{.var age_to_length_conversion} rows for ages outside the model ages
+    ({min(ages)}-{max(ages)}) are not used: {dropped_ages}."
+  )
+  data[!outside, ]
 }
 
 validate_age_to_length_conversion <- function(data, ages, years,
@@ -1358,6 +1404,7 @@ FIMSFrame <- function(data) {
     ages <- integer()
   }
   n_ages <- length(ages)
+  data <- drop_age_to_length_conversion_ages(data, ages)
 
   if ("length" %in% colnames(data)) {
     if (all(is.na(data[["length"]]))) {

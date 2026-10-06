@@ -126,9 +126,11 @@ fleet uses its own rows for that year, then its own rows with
 \code{timing = NA}. If every year uses the same rows, 1 table ordered by age and
 length is returned. Otherwise 1 table per year is returned, ordered by year,
 age, and length. The values for each age are rescaled to sum to 1 over all
-conversion lengths. The model cuts the table to each fleet's length bins
-without rescaling again, so fish outside the bins are left out, and reports
-a message when that happens.
+conversion lengths. For each fleet, the model adds probability for lengths
+below the first and above the last of the fleet's length bins to those bins,
+with a warning. Length is conditional on age, so length probabilities can be
+added together, but rows for ages outside the model ages are dropped by
+\code{\link[=FIMSFrame]{FIMSFrame()}} with a warning.
 }
 }
 \keyword{FIMSFrame}
