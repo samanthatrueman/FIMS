@@ -1009,15 +1009,15 @@ validate_ageing_error <- function(data, ages, years) {
     cli::cli_warn(c(
       "{.var ageing_error} has observed ages below the youngest model age
       ({min(ages)}).",
-      "i" = "Their probabilities are added to age {min(ages)}."
+      "i" = "Their probabilities are added to observed age {min(ages)}."
     ))
   }
   if (any(data[["age"]] > max(ages))) {
     cli::cli_warn(c(
       "{.var ageing_error} has observed ages above the oldest model age
       ({max(ages)}).",
-      "i" = "Their probabilities are added to the plus group, age
-      {max(ages)}."
+      "i" = "Their probabilities are added to observed age {max(ages)}, the
+      plus group."
     ))
   }
   # Sums within the tolerance are rescaled to 1 in fold_ageing_error().
@@ -1032,10 +1032,12 @@ validate_ageing_error <- function(data, ages, years) {
       paste(bad_sums[["group"]], "true age", bad_sums[["true_age"]])
     )
     cli::cli_abort(c(
-      "{.var ageing_error} probabilities for each true age must sum to 1.",
-      "x" = "Check these rows: {bad_rows}.",
-      "i" = "Divide each true age's probabilities by their total if they were
-      rounded to fewer than 3 decimal places."
+      "{.var ageing_error} probabilities across observed ages must sum to 1
+      for each true age.",
+      "x" = "Check these true ages: {bad_rows}.",
+      "i" = "Check that {.var uncertainty} holds the true age and {.var age} the
+      observed age. If the values were rounded, divide each true age's
+      probabilities by their total."
     ))
   }
 
@@ -1060,7 +1062,7 @@ validate_ageing_error <- function(data, ages, years) {
     cli::cli_abort(c(
       "{.var ageing_error} must give every observed age a total probability of
       at least {minimum_total} across true ages.",
-      "x" = "Check these rows: {bad_rows}."
+      "x" = "Check these observed ages: {bad_rows}."
     ))
   }
 
