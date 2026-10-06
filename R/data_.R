@@ -35,10 +35,10 @@
 #'     unit of measurement. `proportion` is also used for `ageing_error`
 #'     data, the probability that a fish of a given true age is read as the
 #'     age in `age`.}
-#'   \item{uncertainty}{A right-handed formula specifying the distributional
-#'     assumptions for the entry in `observed`. See [FIMSFrame()] for more
-#'     information about this column. For `ageing_error` rows, it holds the
-#'     true age as text.
+#'   \item{uncertainty}{A character string with a right-handed formula
+#'     specifying the distributional assumptions for the entry in `observed`.
+#'     See [FIMSFrame()] for more information about this column. For
+#'     `ageing_error` rows, the string is the true age, e.g., `"5"`.
 #' }
 #' }
 #' @source \url{www.github.com/NOAA-FIMS/Age_Structured_Stock_Assessment_Model_Comparison}

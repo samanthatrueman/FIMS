@@ -1579,7 +1579,6 @@ class CatchAtAge : public FisheryModelBase<Type> {
     }
     evaluate_age_comp();
     evaluate_length_comp();
-    // Length compositions need true ages.
     evaluate_ageing_error();
     evaluate_index();
     evaluate_catch();

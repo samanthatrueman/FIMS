@@ -985,9 +985,8 @@ validate_ageing_error <- function(data, ages, years) {
       span_message,
       "x" = "The true ages in {.var uncertainty} must be exactly the model ages
       for: {groups_wrong_true_ages}.",
-      "i" = "Drop true ages below the youngest model age. Combine rows for true
-      ages above the plus group into 1 plus-group row, weighting each row by
-      the expected numbers at that age, e.g., from a previous assessment."
+      "i" = "Drop true ages below the youngest model age and combine rows for
+      true ages above the plus group."
     ))
   }
   groups_missing_observed_ages <- data |>

@@ -31,10 +31,10 @@ viable units for the composition data, where the former is the preferred
 unit of measurement. \code{proportion} is also used for \code{ageing_error}
 data, the probability that a fish of a given true age is read as the
 age in \code{age}.}
-\item{uncertainty}{A right-handed formula specifying the distributional
-assumptions for the entry in \code{observed}. See \code{\link[=FIMSFrame]{FIMSFrame()}} for more
-information about this column. For \code{ageing_error} rows, it holds the
-true age as text.
+\item{uncertainty}{A character string with a right-handed formula
+specifying the distributional assumptions for the entry in \code{observed}.
+See \code{\link[=FIMSFrame]{FIMSFrame()}} for more information about this column. For
+\code{ageing_error} rows, the string is the true age, e.g., \code{"5"}.
 }
 }
 }
