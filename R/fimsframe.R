@@ -1013,19 +1013,25 @@ validate_ageing_error <- function(data, ages, years) {
       for: {groups_missing_observed_ages}."
     ))
   }
-  if (any(data[["age"]] < min(ages))) {
+  outside_observed <- data[["age"]] < min(ages) | data[["age"]] > max(ages)
+  if (any(outside_observed)) {
+    moved <- data[outside_observed, ] |>
+      dplyr::summarize(
+        moved = sum(.data[["observed"]]),
+        .by = dplyr::all_of(c("group", "true_age"))
+      ) |>
+      dplyr::filter(.data[["moved"]] > 1e-3)
+    moved_messages <- glue::glue(
+      "{moved[['group']]} true age {moved[['true_age']]}: ",
+      "{signif(moved[['moved']], 4)} moved."
+    )
+    names(moved_messages) <- rep("*", length(moved_messages))
     cli::cli_warn(c(
-      "{.var ageing_error} has observed ages below the youngest model age
-      ({min(ages)}).",
-      "i" = "Their probabilities are added to observed age {min(ages)}."
-    ))
-  }
-  if (any(data[["age"]] > max(ages))) {
-    cli::cli_warn(c(
-      "{.var ageing_error} has observed ages above the oldest model age
-      ({max(ages)}).",
-      "i" = "Their probabilities are added to observed age {max(ages)}, the
-      plus group."
+      "{.var ageing_error} has observed ages outside the model ages
+      ({min(ages)}-{max(ages)}).",
+      "i" = "Their probabilities are added to the youngest and oldest model
+      ages.",
+      moved_messages
     ))
   }
   row_sums <- data |>
@@ -1054,13 +1060,15 @@ validate_ageing_error <- function(data, ages, years) {
   # that differ from 1 only by floating-point error are not reported.
   rescaled_sums <- dplyr::filter(row_sums, abs(.data[["total"]] - 1) > 1e-8)
   if (NROW(rescaled_sums) > 0) {
-    rescaled_rows <- unique(
-      paste(rescaled_sums[["group"]], "true age", rescaled_sums[["true_age"]])
+    sum_messages <- glue::glue(
+      "{rescaled_sums[['group']]} true age {rescaled_sums[['true_age']]} ",
+      "sums to {format(rescaled_sums[['total']], digits = 8)}."
     )
-    cli::cli_warn(
-      "{.var ageing_error} probabilities are rescaled to sum to 1 for these
-      true ages: {rescaled_rows}."
-    )
+    names(sum_messages) <- rep("*", length(sum_messages))
+    cli::cli_warn(c(
+      "{.var ageing_error} values are rescaled to sum to 1 for each true age.",
+      sum_messages
+    ))
   }
 
   # An expected proportion of 0 makes the multinomial likelihood NaN in TMB,

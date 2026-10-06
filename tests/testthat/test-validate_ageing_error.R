@@ -254,13 +254,10 @@ test_that("validate_ageing_error() folds observed ages beyond the model ages", {
     observed_ages = c(min(ages) - 1, ages, max(ages) + 1)
   )
 
-  #' @description Test that observed ages below the youngest and above the oldest model age each give a warning.
+  #' @description Test that observed ages below the youngest and above the oldest model age give a warning.
   expect_warning(
-    expect_warning(
-      validate_ageing_error(with_data(rows), ages, years),
-      "below the youngest model age"
-    ),
-    "above the oldest model age"
+    validate_ageing_error(with_data(rows), ages, years),
+    "has observed ages outside the model ages"
   )
 
   youngest_true_age <- suppressWarnings(resolve(rows)) |>
